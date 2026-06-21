@@ -15,7 +15,7 @@ const emptyForm: QAFormState = { category: '', q: '', a: '' }
 
 export default function Reception() {
   const navigate = useNavigate()
-  const { currentConsultation, setVisitIntent, qaItems, addQA, editQA, deleteQA } = useStore()
+  const { currentConsultation, setVisitIntentWithCascade, qaItems, addQA, editQA, deleteQA } = useStore()
   const [expandedQ, setExpandedQ] = useState<number | null>(null)
   const [expandedQA, setExpandedQA] = useState<string | null>(null)
   const [searchText, setSearchText] = useState('')
@@ -24,6 +24,8 @@ export default function Reception() {
   const [addForm, setAddForm] = useState<QAFormState>(emptyForm)
   const [editingId, setEditingId] = useState<string | null>(null)
   const [editForm, setEditForm] = useState<QAFormState>(emptyForm)
+  const [showIntentConfirm, setShowIntentConfirm] = useState(false)
+  const [pendingIntent, setPendingIntent] = useState<string | null>(null)
 
   const intent = currentConsultation?.visitIntent || 'anti_aging'
   const intentLabel = visitIntents.find(v => v.id === intent)?.label || intent
@@ -54,6 +56,25 @@ export default function Reception() {
   const filteredQA = qaItems.filter(
     item => item.q.includes(searchText) || item.a.includes(searchText) || item.category.includes(searchText)
   )
+
+  const handleIntentClick = (intentId: string) => {
+    if (intentId === intent) return
+    setPendingIntent(intentId)
+    setShowIntentConfirm(true)
+  }
+
+  const handleIntentConfirm = () => {
+    if (pendingIntent) {
+      setVisitIntentWithCascade(pendingIntent)
+    }
+    setShowIntentConfirm(false)
+    setPendingIntent(null)
+  }
+
+  const handleIntentCancel = () => {
+    setShowIntentConfirm(false)
+    setPendingIntent(null)
+  }
 
   const handleAddSave = () => {
     if (!addForm.q.trim() || !addForm.a.trim()) return
@@ -134,7 +155,7 @@ export default function Reception() {
         {visitIntents.map(v => (
           <button
             key={v.id}
-            onClick={() => setVisitIntent(v.id)}
+            onClick={() => handleIntentClick(v.id)}
             className={`shrink-0 px-3 py-1.5 rounded-full text-sm font-medium transition-colors ${
               intent === v.id
                 ? 'bg-gold-500 text-white'
@@ -145,6 +166,49 @@ export default function Reception() {
           </button>
         ))}
       </div>
+
+      <AnimatePresence>
+        {showIntentConfirm && (
+          <motion.div
+            initial={{ opacity: 0 }}
+            animate={{ opacity: 1 }}
+            exit={{ opacity: 0 }}
+            className="fixed inset-0 z-50 flex items-center justify-center bg-black/50 px-4"
+          >
+            <motion.div
+              initial={{ scale: 0.9, opacity: 0 }}
+              animate={{ scale: 1, opacity: 1 }}
+              exit={{ scale: 0.9, opacity: 0 }}
+              transition={{ duration: 0.2 }}
+              className="bg-white rounded-2xl p-6 max-w-sm w-full shadow-xl"
+            >
+              <div className="flex items-center gap-3 mb-4">
+                <div className="w-10 h-10 rounded-full bg-amber-100 flex items-center justify-center shrink-0">
+                  <AlertTriangle className="w-5 h-5 text-amber-600" />
+                </div>
+                <h3 className="text-lg font-semibold text-gray-900">确认切换</h3>
+              </div>
+              <p className="text-sm text-gray-600 mb-6 leading-relaxed">
+                变更顾客来意将重置风险核对禁忌症和分诊推荐，确认要切换吗？
+              </p>
+              <div className="flex gap-3">
+                <button
+                  onClick={handleIntentCancel}
+                  className="flex-1 px-4 py-2.5 text-sm font-medium text-gray-700 bg-gray-100 rounded-xl hover:bg-gray-200 transition-colors"
+                >
+                  取消
+                </button>
+                <button
+                  onClick={handleIntentConfirm}
+                  className="flex-1 px-4 py-2.5 text-sm font-medium text-white bg-gold-500 rounded-xl hover:bg-gold-600 transition-colors"
+                >
+                  确认
+                </button>
+              </div>
+            </motion.div>
+          </motion.div>
+        )}
+      </AnimatePresence>
 
       <h2 className="text-lg font-semibold text-gray-800 mb-3">开场提问</h2>
       <div className="space-y-3 mb-8">

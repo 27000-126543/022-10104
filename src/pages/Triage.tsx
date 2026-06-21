@@ -1,7 +1,7 @@
 import { useState, useEffect } from 'react'
 import { useNavigate } from 'react-router-dom'
-import { motion } from 'framer-motion'
-import { CheckCircle, ArrowRight, FileText, Copy } from 'lucide-react'
+import { motion, AnimatePresence } from 'framer-motion'
+import { CheckCircle, ArrowRight, FileText, Copy, Sparkles, Target } from 'lucide-react'
 import { useStore } from '@/store/useStore'
 import { triagePaths, emotionOptions, visitIntents } from '@/data/mockData'
 
@@ -95,48 +95,39 @@ function generateReason(intent: string, pathId: string, tags: string[]): string 
   return map[intent]?.[pathId] || '综合评估后推荐此路径，建议进一步面诊确认方案'
 }
 
-function getDefaultPath(intent: string, tags: string[]): string {
-  if (intent === 'anti_aging') {
-    const hasFearTag = tags.some((t) => injectionFearTags.includes(t))
-    if (hasFearTag) return 'injection'
-    const hasSagWrinkle = tags.some((t) => t === '面部松弛改善' || t === '皱纹减少')
-    if (hasSagWrinkle) return 'combined'
-  }
-  if (intent === 'whitening') return 'laser'
-  if (intent === 'contouring') return 'injection'
-  if (intent === 'skin_repair') return 'skin_management'
-  return ''
-}
-
 export default function Triage() {
   const navigate = useNavigate()
-  const { currentConsultation, currentProfile, currentRiskCheck, currentTriageResult, updateTriageResult, completeConsultation } = useStore()
+  const { currentConsultation, currentProfile, currentRiskCheck, currentTriageResult, updateTriageResult, completeConsultation, getSmartRecommendation } = useStore()
   const [selectedPath, setSelectedPath] = useState<string>(currentTriageResult?.recommendedPath || '')
   const [reason, setReason] = useState(currentTriageResult?.reason || '')
+  const [smartRecommendation, setSmartRecommendation] = useState(getSmartRecommendation())
   const [copied, setCopied] = useState(false)
 
   const intentKey = currentConsultation?.visitIntent || ''
   const tags = currentProfile?.standardTags || []
+  const riskLevel = currentRiskCheck?.riskLevel || 'green'
 
   useEffect(() => {
-    if (selectedPath) return
-    const defaultPath = getDefaultPath(intentKey, tags)
-    if (defaultPath) setSelectedPath(defaultPath)
-  }, [])
+    const rec = getSmartRecommendation()
+    setSmartRecommendation(rec)
+    if (rec && rec.confidence === 'high' && !selectedPath) {
+      setSelectedPath(rec.recommendedPath)
+    }
+  }, [currentConsultation, currentProfile?.standardTags, currentProfile?.rawDescription, riskLevel])
 
   useEffect(() => {
     if (!selectedPath) return
     const r = generateReason(intentKey, selectedPath, tags)
     setReason(r)
-  }, [selectedPath, intentKey])
+  }, [selectedPath, intentKey, tags])
 
   useEffect(() => {
     if (!selectedPath) return
     const pathLabel = triagePaths.find((p) => p.id === selectedPath)?.label || ''
     const emotionLabel = emotionLabelMap[currentProfile?.emotion || ''] || '未评估'
-    const risk = currentRiskCheck?.riskLevel || 'green'
-    const riskLabel = riskConfig[risk]?.label || '未评估'
-    const intentLabel = visitIntents.find((v) => v.id === currentConsultation?.visitIntent)?.label || currentConsultation?.visitIntent || '未记录'
+    const riskLabel = riskConfig[riskLevel]?.label || '未评估'
+    const intentLabel = visitIntents.find((v) => v.id === intentKey)?.label || intentKey || '未记录'
+    const conclusion = smartRecommendation?.conclusion || ''
     const summary = [
       `顾客来意：${intentLabel}`,
       `标准诉求：${currentProfile?.standardTags?.join('、') || '无'}`,
@@ -145,9 +136,10 @@ export default function Triage() {
       `风险等级：${riskLabel}`,
       `推荐路径：${pathLabel}`,
       `推荐理由：${reason}`,
+      `分诊结论：${conclusion || '建议进一步面诊确认方案'}`,
     ].join('\n')
     updateTriageResult({ recommendedPath: selectedPath as any, reason, summary })
-  }, [selectedPath, reason])
+  }, [selectedPath, reason, smartRecommendation?.conclusion])
 
   const handleCopy = async () => {
     const text = currentTriageResult?.summary || ''
@@ -167,10 +159,51 @@ export default function Triage() {
   }
 
   const intentLabel = visitIntents.find((v) => v.id === currentConsultation.visitIntent)?.label || currentConsultation.visitIntent
+  const confidenceConfig = {
+    high: { label: '高置信度', color: 'bg-green-500 text-white' },
+    medium: { label: '中置信度', color: 'bg-blue-500 text-white' },
+    low: { label: '低置信度', color: 'bg-gray-400 text-white' },
+  }
 
   return (
     <div className="max-w-lg mx-auto px-4 pb-24">
       <h1 className="text-2xl font-bold text-gray-800 mb-6 text-center">分诊建议</h1>
+
+      <AnimatePresence>
+        {smartRecommendation && (
+          <motion.div
+            initial={{ opacity: 0, y: -12 }}
+            animate={{ opacity: 1, y: 0 }}
+            exit={{ opacity: 0, y: -12 }}
+            className="mb-6 rounded-2xl bg-gradient-to-r from-blue-50 to-indigo-50 border border-blue-200 p-5 shadow-sm"
+          >
+            <div className="flex items-center gap-2 mb-3">
+              <Sparkles className="w-5 h-5 text-indigo-500" />
+              <span className="font-bold text-gray-800">AI 智能推荐</span>
+              <span className={`px-2 py-0.5 text-xs font-semibold rounded-full ${confidenceConfig[smartRecommendation.confidence].color}`}>
+                {confidenceConfig[smartRecommendation.confidence].label}
+              </span>
+            </div>
+            <div className="flex items-center gap-2 mb-2">
+              <Target className="w-4 h-4 text-indigo-500" />
+              <span className="text-sm font-semibold text-gray-700">
+                {triagePaths.find((p) => p.id === smartRecommendation.recommendedPath)?.label}
+              </span>
+              <span className="px-2 py-0.5 text-xs font-semibold rounded-full bg-indigo-100 text-indigo-700">
+                推荐路径
+              </span>
+            </div>
+            <p className="text-sm text-gray-600 leading-relaxed mb-3">{smartRecommendation.reason}</p>
+            <div className="rounded-xl bg-gradient-to-r from-amber-50 to-yellow-50 border border-amber-300 p-4">
+              <div className="flex items-center gap-1.5 mb-1.5">
+                <CheckCircle className="w-4 h-4 text-amber-600" />
+                <span className="text-xs font-semibold text-amber-700">分诊结论</span>
+              </div>
+              <p className="text-sm font-medium text-amber-800 leading-relaxed">{smartRecommendation.conclusion}</p>
+            </div>
+          </motion.div>
+        )}
+      </AnimatePresence>
 
       <div className="grid grid-cols-2 gap-3 mb-6">
         {triagePaths.map((path, index) => {
@@ -246,10 +279,10 @@ export default function Triage() {
               <span className="text-sm text-gray-500">风险等级</span>
               <span
                 className={`text-xs font-semibold px-2 py-0.5 rounded-full ${
-                  riskConfig[currentRiskCheck?.riskLevel || 'green']?.color
+                  riskConfig[riskLevel]?.color
                 }`}
               >
-                {riskConfig[currentRiskCheck?.riskLevel || 'green']?.label}
+                {riskConfig[riskLevel]?.label}
               </span>
             </div>
             <SummaryRow
@@ -257,6 +290,7 @@ export default function Triage() {
               value={triagePaths.find((p) => p.id === selectedPath)?.label || ''}
             />
             <SummaryRow label="推荐理由" value={reason} />
+            <SummaryRow label="分诊结论" value={smartRecommendation?.conclusion || '建议进一步面诊确认方案'} />
             <div className="pt-2 border-t border-gray-100">
               <button
                 onClick={handleCopy}

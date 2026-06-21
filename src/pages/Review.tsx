@@ -1,8 +1,8 @@
-import { useState } from 'react'
-import { motion } from 'framer-motion'
-import { TrendingUp, AlertCircle, CheckCircle2, Clock, ChevronRight, BarChart3, MessageSquarePlus, Filter } from 'lucide-react'
+import { useState, useMemo } from 'react'
+import { motion, AnimatePresence } from 'framer-motion'
+import { TrendingUp, AlertCircle, CheckCircle2, Clock, ChevronRight, BarChart3, MessageSquarePlus, Filter, Search, RotateCcw, Radio, ThumbsUp, AlertOctagon } from 'lucide-react'
 import { useStore } from '@/store/useStore'
-import { emotionOptions, visitIntents, triagePaths } from '@/data/mockData'
+import { emotionOptions, visitIntents, triagePaths, openingQuestions } from '@/data/mockData'
 import { PieChart, Pie, Cell, BarChart, Bar, XAxis, YAxis, Tooltip, ResponsiveContainer } from 'recharts'
 
 const pathConfig: Record<string, { color: string; label: string; bg: string }> = {
@@ -21,14 +21,15 @@ const riskLabels: Record<string, { label: string; bg: string }> = {
   red: { label: '高风险', bg: 'bg-rose-100 text-rose-700' },
 }
 
+const statusLabels: Record<string, { label: string; bg: string }> = {
+  pending_improvement: { label: '待改进', bg: 'bg-rose-100 text-rose-700' },
+  approved: { label: '已通过', bg: 'bg-emerald-100 text-emerald-700' },
+  pending: { label: '待评价', bg: 'bg-gray-100 text-gray-600' },
+}
+
 function formatDate(iso: string) {
   const d = new Date(iso)
   return `${d.getMonth() + 1}月${d.getDate()}日`
-}
-
-function formatShortDate(iso: string) {
-  const d = new Date(iso)
-  return `${d.getMonth() + 1}/${d.getDate()}`
 }
 
 function getIntentLabel(intentId: string) {
@@ -39,63 +40,165 @@ function getEmotionLabel(emotionId: string) {
   return emotionOptions.find(e => e.id === emotionId)?.label || emotionId
 }
 
+function getStatusBadge(status?: string) {
+  if (!status) return statusLabels['pending']
+  return statusLabels[status] || statusLabels['pending']
+}
+
 export default function Review() {
   const { completedRecords, reviews, updateReview, addReview } = useStore()
   const [expandedId, setExpandedId] = useState<string | null>(null)
-  const [reviewFilter, setReviewFilter] = useState<'全部' | '有偏差' | '无偏差'>('全部')
+  const [reviewFilter, setReviewFilter] = useState<'全部' | '待改进' | '已通过' | '待评价'>('全部')
   const [editingReviewId, setEditingReviewId] = useState<string | null>(null)
-  const [editForm, setEditForm] = useState({ deviationType: '', supervisorComment: '' })
+  const [editForm, setEditForm] = useState({ deviationType: '', supervisorComment: '', status: 'approved' as 'approved' | 'pending_improvement' })
+  const [filterName, setFilterName] = useState('')
+  const [filterIntent, setFilterIntent] = useState('')
+  const [filterRisk, setFilterRisk] = useState('')
+  const [filterPath, setFilterPath] = useState('')
 
-  const deviationCount = reviews.filter(r => r.deviationType && r.deviationType.trim() !== '' && r.deviationType !== '无偏差').length
-  const deviationRate = reviews.length > 0 ? Math.round((deviationCount / reviews.length) * 100) : 0
+  const reviewMap = useMemo(() => new Map(reviews.map(r => [r.consultationId, r])), [reviews])
 
-  const pathDistribution = completedRecords.reduce<Record<string, number>>((acc, r) => {
-    const path = r.triageResult.recommendedPath
-    acc[path] = (acc[path] || 0) + 1
-    return acc
-  }, {})
-  const pieData = Object.entries(pathDistribution).map(([name, value]) => ({ name, value }))
+  const statusCounts = useMemo(() => {
+    const counts = { 全部: completedRecords.length, 待改进: 0, 已通过: 0, 待评价: 0 }
+    completedRecords.forEach(r => {
+      const review = reviewMap.get(r.consultation.id)
+      if (!review || !review.status) counts['待评价']++
+      else if (review.status === 'pending_improvement') counts['待改进']++
+      else if (review.status === 'approved') counts['已通过']++
+    })
+    return counts
+  }, [completedRecords, reviewMap])
 
-  const today = new Date()
-  const barData = Array.from({ length: 7 }, (_, i) => {
-    const d = new Date(today)
-    d.setDate(d.getDate() - (6 - i))
-    const label = `${d.getMonth() + 1}/${d.getDate()}`
-    const dayStr = d.toDateString()
-    const count = completedRecords.filter(r => new Date(r.consultation.completedAt || r.consultation.createdAt).toDateString() === dayStr).length
-    return { day: label, count }
-  })
+  const filteredRecords = useMemo(() => {
+    return completedRecords.filter(record => {
+      if (filterName && !record.consultation.customerName.includes(filterName)) return false
+      if (filterIntent && record.consultation.visitIntent !== filterIntent) return false
+      if (filterRisk && record.riskCheck.riskLevel !== filterRisk) return false
+      if (filterPath && record.triageResult.recommendedPath !== filterPath) return false
+      return true
+    })
+  }, [completedRecords, filterName, filterIntent, filterRisk, filterPath])
+
+  const reviewFilteredRecords = useMemo(() => {
+    return filteredRecords.filter(record => {
+      const review = reviewMap.get(record.consultation.id)
+      const status = review?.status
+      if (reviewFilter === '待改进') return status === 'pending_improvement'
+      if (reviewFilter === '已通过') return status === 'approved'
+      if (reviewFilter === '待评价') return !status || status === 'pending'
+      return true
+    })
+  }, [filteredRecords, reviewMap, reviewFilter])
+
+  const pathDistribution = useMemo(() => {
+    const dist = filteredRecords.reduce<Record<string, number>>((acc, r) => {
+      const path = r.triageResult.recommendedPath
+      acc[path] = (acc[path] || 0) + 1
+      return acc
+    }, {})
+    return Object.entries(dist).map(([name, value]) => ({ name, value }))
+  }, [filteredRecords])
+
+  const barData = useMemo(() => {
+    const today = new Date()
+    return Array.from({ length: 7 }, (_, i) => {
+      const d = new Date(today)
+      d.setDate(d.getDate() - (6 - i))
+      const label = `${d.getMonth() + 1}/${d.getDate()}`
+      const dayStr = d.toDateString()
+      const count = filteredRecords.filter(r => new Date(r.consultation.completedAt || r.consultation.createdAt).toDateString() === dayStr).length
+      return { day: label, count }
+    })
+  }, [filteredRecords])
+
+  const pendingImprovementCount = reviews.filter(r => r.status === 'pending_improvement').length
+  const approvedCount = reviews.filter(r => r.status === 'approved').length
+  const deviationRate = reviews.length > 0 ? Math.round((pendingImprovementCount / reviews.length) * 100) : 0
 
   const stats = [
-    { label: '总接待', value: completedRecords.length, icon: BarChart3, color: 'text-amber-500' },
-    { label: '已完成', value: completedRecords.length, icon: CheckCircle2, color: 'text-emerald-500' },
-    { label: '偏差率', value: `${deviationRate}%`, icon: TrendingUp, color: 'text-rose-500' },
+    { label: '总接待', value: filteredRecords.length, icon: BarChart3, color: 'text-amber-500' },
+    { label: '已通过', value: approvedCount, icon: CheckCircle2, color: 'text-emerald-500' },
+    { label: '待改进', value: `${deviationRate}%`, icon: TrendingUp, color: 'text-rose-500' },
   ]
 
-  const reviewMap = new Map(reviews.map(r => [r.consultationId, r]))
+  function resetFilters() {
+    setFilterName('')
+    setFilterIntent('')
+    setFilterRisk('')
+    setFilterPath('')
+  }
 
-  const filteredRecords = completedRecords.filter(record => {
-    const review = reviewMap.get(record.consultation.id)
-    if (reviewFilter === '有偏差') return review && review.deviationType && review.deviationType.trim() !== '' && review.deviationType !== '无偏差'
-    if (reviewFilter === '无偏差') return !review || !review.deviationType || review.deviationType.trim() === '' || review.deviationType === '无偏差'
-    return true
-  })
-
-  function startEdit(reviewId: string, current: { deviationType?: string; supervisorComment?: string }) {
+  function startEdit(reviewId: string, current: { deviationType?: string; supervisorComment?: string; status?: string }) {
     setEditingReviewId(reviewId)
-    setEditForm({ deviationType: current.deviationType || '', supervisorComment: current.supervisorComment || '' })
+    const status = current.status === 'pending_improvement' ? 'pending_improvement' : 'approved'
+    setEditForm({
+      deviationType: current.deviationType || '',
+      supervisorComment: current.supervisorComment || '',
+      status,
+    })
   }
 
   function saveEdit(reviewId: string) {
-    updateReview(reviewId, { deviationType: editForm.deviationType, supervisorComment: editForm.supervisorComment, reviewedAt: new Date().toISOString() })
+    const status = editForm.status
+    updateReview(reviewId, {
+      deviationType: editForm.deviationType,
+      supervisorComment: editForm.supervisorComment,
+      status,
+      reviewedAt: new Date().toISOString(),
+    })
     setEditingReviewId(null)
   }
 
   function handleAddReview(consultationId: string) {
     const id = `review-${Date.now()}`
-    addReview({ id, consultationId, deviationType: '', supervisorComment: '' })
+    addReview({ id, consultationId, deviationType: '', supervisorComment: '', status: 'pending' })
     setEditingReviewId(id)
-    setEditForm({ deviationType: '', supervisorComment: '' })
+    setEditForm({ deviationType: '', supervisorComment: '', status: 'approved' })
+  }
+
+  const timelineSteps = (record: typeof completedRecords[0], review?: typeof reviews[0]) => {
+    const intent = record.consultation.visitIntent
+    const questions = openingQuestions[intent] || []
+    const presentContra = record.riskCheck.contraindicationChecks.filter(c => c.present).map(c => c.item)
+
+    return [
+      {
+        icon: '🎤',
+        title: '开场提问',
+        content: `按${getIntentLabel(intent)}来意标准化提问${questions.length}个开场问题`,
+        active: true,
+      },
+      {
+        icon: '👤',
+        title: '顾客画像',
+        tags: record.profile.standardTags,
+        raw: record.profile.rawDescription,
+        emotion: getEmotionLabel(record.profile.emotion),
+        concern: record.profile.concern,
+        active: true,
+      },
+      {
+        icon: '⚠️',
+        title: '风险核对',
+        riskLevel: record.riskCheck.riskLevel,
+        contraindications: presentContra,
+        active: true,
+      },
+      {
+        icon: '🎯',
+        title: '分诊建议',
+        path: record.triageResult.recommendedPath,
+        reason: record.triageResult.reason,
+        conclusion: record.triageResult.summary,
+        active: true,
+      },
+      {
+        icon: '💬',
+        title: '主管评语',
+        review,
+        active: !!review,
+      },
+    ]
   }
 
   return (
@@ -115,13 +218,51 @@ export default function Review() {
         ))}
       </motion.div>
 
+      <motion.div initial={{ opacity: 0, y: 10 }} animate={{ opacity: 1, y: 0 }} transition={{ delay: 0.15 }} className="bg-white rounded-xl shadow-sm p-4">
+        <div className="flex items-center gap-2 mb-3">
+          <Filter className="w-4 h-4 text-gray-500" />
+          <h2 className="text-base font-semibold text-gray-900">筛选条件</h2>
+        </div>
+        <div className="space-y-3">
+          <div className="relative">
+            <Search className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-gray-400" />
+            <input
+              type="text"
+              placeholder="搜索顾客姓名"
+              value={filterName}
+              onChange={e => setFilterName(e.target.value)}
+              className="w-full pl-9 pr-3 py-2 text-sm border border-gray-200 rounded-lg focus:outline-none focus:ring-2 focus:ring-amber-400"
+            />
+          </div>
+          <div className="grid grid-cols-3 gap-2">
+            <select value={filterIntent} onChange={e => setFilterIntent(e.target.value)} className="text-sm border border-gray-200 rounded-lg px-2 py-2 focus:outline-none focus:ring-2 focus:ring-amber-400">
+              <option value="">全部来意</option>
+              {visitIntents.map(v => <option key={v.id} value={v.id}>{v.label}</option>)}
+            </select>
+            <select value={filterRisk} onChange={e => setFilterRisk(e.target.value)} className="text-sm border border-gray-200 rounded-lg px-2 py-2 focus:outline-none focus:ring-2 focus:ring-amber-400">
+              <option value="">全部风险</option>
+              <option value="green">低风险</option>
+              <option value="yellow">中风险</option>
+              <option value="red">高风险</option>
+            </select>
+            <select value={filterPath} onChange={e => setFilterPath(e.target.value)} className="text-sm border border-gray-200 rounded-lg px-2 py-2 focus:outline-none focus:ring-2 focus:ring-amber-400">
+              <option value="">全部路径</option>
+              {triagePaths.map(p => <option key={p.id} value={p.id}>{p.label}</option>)}
+            </select>
+          </div>
+          <button onClick={resetFilters} className="flex items-center gap-1 text-xs text-gray-500 hover:text-amber-600">
+            <RotateCcw className="w-3 h-3" />重置筛选
+          </button>
+        </div>
+      </motion.div>
+
       <motion.div initial={{ opacity: 0, y: 10 }} animate={{ opacity: 1, y: 0 }} transition={{ delay: 0.2 }} className="bg-white rounded-xl shadow-sm p-4">
         <h2 className="text-base font-semibold text-gray-900 mb-3">分诊路径分布</h2>
-        {pieData.length > 0 ? (
+        {pathDistribution.length > 0 ? (
           <ResponsiveContainer width="100%" height={200}>
             <PieChart>
-              <Pie data={pieData} dataKey="value" nameKey="name" cx="50%" cy="50%" outerRadius={70} innerRadius={40} paddingAngle={3} label={({ name }) => pathConfig[name]?.label || name}>
-                {pieData.map(entry => (<Cell key={entry.name} fill={pathConfig[entry.name]?.color || '#94a3b8'} />))}
+              <Pie data={pathDistribution} dataKey="value" nameKey="name" cx="50%" cy="50%" outerRadius={70} innerRadius={40} paddingAngle={3} label={({ name }) => pathConfig[name]?.label || name}>
+                {pathDistribution.map(entry => (<Cell key={entry.name} fill={pathConfig[entry.name]?.color || '#94a3b8'} />))}
               </Pie>
               <Tooltip formatter={(v: number, n: string) => [v, pathConfig[n]?.label || n]} />
             </PieChart>
@@ -144,38 +285,95 @@ export default function Review() {
       <motion.div initial={{ opacity: 0, y: 10 }} animate={{ opacity: 1, y: 0 }} transition={{ delay: 0.4 }}>
         <h2 className="text-base font-semibold text-gray-900 mb-3">接待记录</h2>
         <div className="space-y-2">
-          {completedRecords.map(record => {
-            const path = record.triageResult.recommendedPath
-            const cfg = pathConfig[path] || { label: path, bg: 'bg-gray-100 text-gray-600', color: '#94a3b8' }
-            return (
-              <div key={record.consultation.id} className="bg-white rounded-xl shadow-sm overflow-hidden">
-                <button onClick={() => setExpandedId(expandedId === record.consultation.id ? null : record.consultation.id)} className="w-full px-4 py-3 flex items-center justify-between">
-                  <div className="flex items-center gap-3 text-left">
-                    <CheckCircle2 className="w-4 h-4 text-emerald-500 shrink-0" />
-                    <div>
-                      <p className="text-sm font-medium text-gray-900">{record.consultation.customerName}</p>
-                      <p className="text-xs text-gray-500">{formatDate(record.consultation.completedAt || record.consultation.createdAt)} · {getIntentLabel(record.consultation.visitIntent)}</p>
+          <AnimatePresence>
+            {filteredRecords.map(record => {
+              const path = record.triageResult.recommendedPath
+              const cfg = pathConfig[path] || { label: path, bg: 'bg-gray-100 text-gray-600', color: '#94a3b8' }
+              const review = reviewMap.get(record.consultation.id)
+              const isExpanded = expandedId === record.consultation.id
+              const steps = timelineSteps(record, review)
+
+              return (
+                <div key={record.consultation.id} className="bg-white rounded-xl shadow-sm overflow-hidden">
+                  <button onClick={() => setExpandedId(isExpanded ? null : record.consultation.id)} className="w-full px-4 py-3 flex items-center justify-between">
+                    <div className="flex items-center gap-3 text-left">
+                      <CheckCircle2 className="w-4 h-4 text-emerald-500 shrink-0" />
+                      <div>
+                        <p className="text-sm font-medium text-gray-900">{record.consultation.customerName}</p>
+                        <p className="text-xs text-gray-500">{formatDate(record.consultation.completedAt || record.consultation.createdAt)} · {getIntentLabel(record.consultation.visitIntent)}</p>
+                      </div>
                     </div>
-                  </div>
-                  <div className="flex items-center gap-2">
-                    <span className={`text-xs px-2 py-0.5 rounded-full ${cfg.bg}`}>{cfg.label}</span>
-                    <ChevronRight className={`w-4 h-4 text-gray-400 transition-transform ${expandedId === record.consultation.id ? 'rotate-90' : ''}`} />
-                  </div>
-                </button>
-                {expandedId === record.consultation.id && (
-                  <motion.div initial={{ height: 0, opacity: 0 }} animate={{ height: 'auto', opacity: 1 }} className="px-4 pb-3 text-xs text-gray-600 border-t border-gray-100 pt-2 space-y-1.5">
-                    <p><span className="text-gray-400">顾客诉求：</span>{record.profile.standardTags.join('、') || '无'}</p>
-                    <p><span className="text-gray-400">顾客原话：</span>{record.profile.rawDescription || '无'}</p>
-                    <p><span className="text-gray-400">情绪顾虑：</span>{getEmotionLabel(record.profile.emotion)}{record.profile.concern ? ` · ${record.profile.concern}` : ''}</p>
-                    <p className="flex items-center gap-1"><span className="text-gray-400">风险核对：</span><span className={`px-1.5 py-0.5 rounded text-xs ${riskLabels[record.riskCheck.riskLevel]?.bg || ''}`}>{riskLabels[record.riskCheck.riskLevel]?.label || record.riskCheck.riskLevel}</span>{record.riskCheck.contraindicationChecks.filter(c => c.present).map(c => c.item).join('、') || ''}</p>
-                    <p><span className="text-gray-400">推荐路径：</span>{cfg.label}{record.triageResult.reason ? ` · ${record.triageResult.reason}` : ''}</p>
-                    <p><span className="text-gray-400">面诊摘要：</span>{record.triageResult.summary || '无'}</p>
-                  </motion.div>
-                )}
-              </div>
-            )
-          })}
-          {completedRecords.length === 0 && <p className="text-sm text-gray-400 text-center py-4">暂无接待记录</p>}
+                    <div className="flex items-center gap-2">
+                      <span className={`text-xs px-2 py-0.5 rounded-full ${cfg.bg}`}>{cfg.label}</span>
+                      {review && <span className={`text-xs px-2 py-0.5 rounded-full ${getStatusBadge(review.status).bg}`}>{getStatusBadge(review.status).label}</span>}
+                      <ChevronRight className={`w-4 h-4 text-gray-400 transition-transform ${isExpanded ? 'rotate-90' : ''}`} />
+                    </div>
+                  </button>
+                  <AnimatePresence>
+                    {isExpanded && (
+                      <motion.div initial={{ height: 0, opacity: 0 }} animate={{ height: 'auto', opacity: 1 }} exit={{ height: 0, opacity: 0 }} className="border-t border-gray-100">
+                        <div className="px-4 py-3 space-y-4">
+                          {steps.map((step, idx) => (
+                            <div key={idx} className="flex gap-3">
+                              <div className="flex flex-col items-center">
+                                <div className={`w-8 h-8 rounded-full flex items-center justify-center text-sm ${step.active ? 'bg-amber-100' : 'bg-gray-100'}`}>
+                                  {step.icon}
+                                </div>
+                                {idx < steps.length - 1 && <div className={`w-0.5 flex-1 ${step.active && steps[idx + 1]?.active ? 'bg-amber-300' : 'bg-gray-200'}`} />}
+                              </div>
+                              <div className="flex-1 pb-4">
+                                <p className={`text-sm font-medium ${step.active ? 'text-gray-900' : 'text-gray-400'}`}>{step.title}</p>
+                                {step.title === '开场提问' && <p className="text-xs text-gray-600 mt-1">{step.content}</p>}
+                                {step.title === '顾客画像' && (
+                                  <div className="text-xs text-gray-600 mt-1 space-y-1">
+                                    {step.tags?.length > 0 && <div className="flex flex-wrap gap-1">{step.tags.map((t, i) => <span key={i} className="px-2 py-0.5 bg-amber-50 text-amber-700 rounded-full">{t}</span>)}</div>}
+                                    {step.raw && <p><span className="text-gray-400">顾客原话：</span>{step.raw}</p>}
+                                    <p><span className="text-gray-400">情绪：</span>{step.emotion || '未记录'}{step.concern && ` · 顾虑：${step.concern}`}</p>
+                                  </div>
+                                )}
+                                {step.title === '风险核对' && (
+                                  <div className="text-xs text-gray-600 mt-1 space-y-1">
+                                    <div className="flex items-center gap-2">
+                                      <span className={`px-1.5 py-0.5 rounded ${riskLabels[step.riskLevel!]?.bg || ''}`}>{riskLabels[step.riskLevel!]?.label || step.riskLevel}</span>
+                                      {step.contraindications?.length > 0 && <span className="text-rose-600 flex items-center gap-1"><AlertOctagon className="w-3 h-3" />{step.contraindications.join('、')}</span>}
+                                    </div>
+                                  </div>
+                                )}
+                                {step.title === '分诊建议' && (
+                                  <div className="text-xs text-gray-600 mt-1 space-y-1">
+                                    <p><span className="text-gray-400">推荐路径：</span><span className={`px-1.5 py-0.5 rounded ${pathConfig[step.path!]?.bg || ''}`}>{pathConfig[step.path!]?.label || step.path}</span></p>
+                                    {step.reason && <p><span className="text-gray-400">理由：</span>{step.reason}</p>}
+                                    {step.conclusion && <p><span className="text-gray-400">结论：</span>{step.conclusion}</p>}
+                                  </div>
+                                )}
+                                {step.title === '主管评语' && (
+                                  <div className="text-xs text-gray-600 mt-1">
+                                    {step.review ? (
+                                      <div className="space-y-1">
+                                        <div className="flex items-center gap-2">
+                                          <span className={`px-1.5 py-0.5 rounded ${getStatusBadge(step.review.status).bg}`}>{getStatusBadge(step.review.status).label}</span>
+                                          {step.review.deviationType && step.review.deviationType !== '无偏差' && <span className="text-rose-600">{step.review.deviationType}</span>}
+                                        </div>
+                                        <p>{step.review.supervisorComment || '暂无评语'}</p>
+                                        {step.review.reviewedAt && <p className="text-gray-400 flex items-center gap-1"><Clock className="w-3 h-3" />{formatDate(step.review.reviewedAt)}</p>}
+                                      </div>
+                                    ) : (
+                                      <p className="text-gray-400">待主管评价</p>
+                                    )}
+                                  </div>
+                                )}
+                              </div>
+                            </div>
+                          ))}
+                        </div>
+                      </motion.div>
+                    )}
+                  </AnimatePresence>
+                </div>
+              )
+            })}
+          </AnimatePresence>
+          {filteredRecords.length === 0 && <p className="text-sm text-gray-400 text-center py-4">暂无接待记录</p>}
         </div>
       </motion.div>
 
@@ -184,35 +382,51 @@ export default function Review() {
           <h2 className="text-base font-semibold text-gray-900">主管反馈</h2>
           <div className="flex items-center gap-1 text-xs">
             <Filter className="w-3 h-3 text-gray-400" />
-            {(['全部', '有偏差', '无偏差'] as const).map(f => (
-              <button key={f} onClick={() => setReviewFilter(f)} className={`px-2 py-1 rounded-md transition-colors ${reviewFilter === f ? 'bg-amber-500 text-white' : 'text-gray-500 hover:bg-gray-100'}`}>{f}</button>
+            {(['全部', '待改进', '已通过', '待评价'] as const).map(f => (
+              <button key={f} onClick={() => setReviewFilter(f)} className={`px-2 py-1 rounded-md transition-colors ${reviewFilter === f ? 'bg-amber-500 text-white' : 'text-gray-500 hover:bg-gray-100'}`}>
+                {f}({statusCounts[f]})
+              </button>
             ))}
           </div>
         </div>
         <div className="space-y-2">
-          {filteredRecords.map(record => {
+          {reviewFilteredRecords.map(record => {
             const review = reviewMap.get(record.consultation.id)
-            const hasDeviation = review && review.deviationType && review.deviationType.trim() !== '' && review.deviationType !== '无偏差'
+            const statusBadge = getStatusBadge(review?.status)
             const isEditing = editingReviewId === (review?.id || '')
+            const hasDeviation = review?.deviationType && review.deviationType.trim() !== '' && review.deviationType !== '无偏差'
             return (
-              <div key={record.consultation.id} className={`bg-white rounded-xl shadow-sm p-4 border-l-4 ${hasDeviation ? 'border-l-rose-500' : 'border-l-emerald-400'}`}>
+              <div key={record.consultation.id} className={`bg-white rounded-xl shadow-sm p-4 border-l-4 ${review?.status === 'pending_improvement' ? 'border-l-rose-500' : review?.status === 'approved' ? 'border-l-emerald-400' : 'border-l-gray-300'}`}>
                 <div className="flex items-center justify-between mb-2">
                   <div className="flex items-center gap-2">
                     <span className="text-sm font-medium text-gray-900">{record.consultation.customerName}</span>
                     <span className="text-xs text-gray-400">{formatDate(record.consultation.completedAt || record.consultation.createdAt)}</span>
                   </div>
-                  <span className={`text-xs px-2 py-0.5 rounded-full ${pathConfig[record.triageResult.recommendedPath]?.bg || 'bg-gray-100 text-gray-600'}`}>{pathConfig[record.triageResult.recommendedPath]?.label || record.triageResult.recommendedPath}</span>
+                  <div className="flex items-center gap-1">
+                    <span className={`text-xs px-2 py-0.5 rounded-full ${pathConfig[record.triageResult.recommendedPath]?.bg || 'bg-gray-100 text-gray-600'}`}>{pathConfig[record.triageResult.recommendedPath]?.label || record.triageResult.recommendedPath}</span>
+                    <span className={`text-xs px-2 py-0.5 rounded-full ${statusBadge.bg}`}>{statusBadge.label}</span>
+                  </div>
                 </div>
                 {review && !isEditing && (
                   <>
                     {hasDeviation && <span className="inline-block text-xs bg-rose-100 text-rose-700 px-2 py-0.5 rounded-full mb-2">{review.deviationType}</span>}
                     <p className="text-sm text-gray-700">{review.supervisorComment || '暂无评语'}</p>
                     {review.reviewedAt && <p className="text-xs text-gray-400 mt-2 flex items-center gap-1"><Clock className="w-3 h-3" />{formatDate(review.reviewedAt)}</p>}
-                    <button onClick={() => startEdit(review.id, review)} className="mt-2 flex items-center gap-1 text-xs text-amber-600 hover:text-amber-700"><MessageSquarePlus className="w-3 h-3" />添加评语</button>
+                    <button onClick={() => startEdit(review.id, review)} className="mt-2 flex items-center gap-1 text-xs text-amber-600 hover:text-amber-700"><MessageSquarePlus className="w-3 h-3" />编辑评语</button>
                   </>
                 )}
                 {review && isEditing && (
                   <div className="space-y-2 mt-1">
+                    <div className="flex items-center gap-4 text-sm">
+                      <label className="flex items-center gap-1 cursor-pointer">
+                        <Radio className={`w-4 h-4 ${editForm.status === 'approved' ? 'text-emerald-500 fill-emerald-500' : 'text-gray-400'}`} onClick={() => setEditForm(f => ({ ...f, status: 'approved' }))} />
+                        <span className="flex items-center gap-1"><ThumbsUp className="w-3 h-3 text-emerald-500" />已通过</span>
+                      </label>
+                      <label className="flex items-center gap-1 cursor-pointer">
+                        <Radio className={`w-4 h-4 ${editForm.status === 'pending_improvement' ? 'text-rose-500 fill-rose-500' : 'text-gray-400'}`} onClick={() => setEditForm(f => ({ ...f, status: 'pending_improvement' }))} />
+                        <span className="flex items-center gap-1"><AlertCircle className="w-3 h-3 text-rose-500" />待改进</span>
+                      </label>
+                    </div>
                     <select value={editForm.deviationType} onChange={e => setEditForm(f => ({ ...f, deviationType: e.target.value }))} className="w-full text-sm border border-gray-200 rounded-lg px-3 py-2 focus:outline-none focus:ring-2 focus:ring-amber-400">
                       <option value="">选择偏差类型</option>
                       {deviationOptions.map(o => <option key={o} value={o}>{o}</option>)}
@@ -225,12 +439,12 @@ export default function Review() {
                   </div>
                 )}
                 {!review && (
-                  <button onClick={() => handleAddReview(record.consultation.id)} className="flex items-center gap-1 text-xs text-amber-600 hover:text-amber-700"><MessageSquarePlus className="w-3 h-3" />待评价</button>
+                  <button onClick={() => handleAddReview(record.consultation.id)} className="flex items-center gap-1 text-xs text-amber-600 hover:text-amber-700"><MessageSquarePlus className="w-3 h-3" />添加评价</button>
                 )}
               </div>
             )
           })}
-          {filteredRecords.length === 0 && <p className="text-sm text-gray-400 text-center py-4">暂无反馈记录</p>}
+          {reviewFilteredRecords.length === 0 && <p className="text-sm text-gray-400 text-center py-4">暂无反馈记录</p>}
         </div>
       </motion.div>
     </div>

@@ -1,11 +1,12 @@
 import { useNavigate } from 'react-router-dom'
 import { motion } from 'framer-motion'
-import { CheckCircle2, Circle, AlertTriangle, ShieldAlert, AlertCircle, ArrowRight, Phone, ShieldCheck, ShieldQuestion } from 'lucide-react'
+import { CheckCircle2, Circle, AlertTriangle, ShieldAlert, AlertCircle, ArrowRight, Phone, Info } from 'lucide-react'
 import { useStore } from '@/store/useStore'
+import { visitIntents } from '@/data/mockData'
 
 const riskConfig = {
-  green: { label: '低风险', color: 'text-mint-400', bg: 'bg-mint-50', border: 'border-mint-400', icon: ShieldCheck, iconColor: 'text-mint-500', pulse: false },
-  yellow: { label: '需关注', color: 'text-amber-400', bg: 'bg-amber-50', border: 'border-amber-400', icon: ShieldQuestion, iconColor: 'text-amber-500', pulse: true },
+  green: { label: '低风险', color: 'text-mint-400', bg: 'bg-mint-50', border: 'border-mint-400', icon: CheckCircle2, iconColor: 'text-mint-500', pulse: false },
+  yellow: { label: '需关注', color: 'text-amber-400', bg: 'bg-amber-50', border: 'border-amber-400', icon: AlertTriangle, iconColor: 'text-amber-500', pulse: true },
   red: { label: '需医生介入', color: 'text-coral-400', bg: 'bg-red-50', border: 'border-coral-400', icon: ShieldAlert, iconColor: 'text-red-500', pulse: true },
 }
 
@@ -32,15 +33,22 @@ export default function Risk() {
   const anyContraindicationPresent = contraindicationChecks.some((c) => c.present)
   const presentCount = contraindicationChecks.filter((c) => c.present).length
 
-  const summaryText = riskLevel === 'red'
-    ? `存在${presentCount}项禁忌症，需要医生介入评估`
+  const intentLabel = visitIntents.find((v) => v.id === currentConsultation.visitIntent)?.label || currentConsultation.visitIntent
+
+  const conclusionText = riskLevel === 'green'
+    ? '✅ 风险评估完成，各项检查无异常，可安全进入分诊'
     : riskLevel === 'yellow'
-      ? '关键病史尚未全部确认，请继续核对'
-      : '所有风险项已确认，可安全进入分诊'
+      ? '⚠️ 关键病史尚未全部确认，请继续核对完成'
+      : '🚨 存在禁忌症风险，建议医生提前介入评估'
 
   return (
     <div className="max-w-lg mx-auto p-6 space-y-6">
       <h1 className="text-xl font-bold text-gray-800">风险核对</h1>
+
+      <div className="inline-flex items-center gap-2 px-4 py-2 bg-gold-50 border border-gold-200 rounded-full">
+        <Info className="w-4 h-4 text-gold-500" />
+        <span className="text-sm font-medium text-gold-700">当前来意：{intentLabel}</span>
+      </div>
 
       <div className="flex flex-col items-center py-4">
         <motion.div
@@ -78,9 +86,13 @@ export default function Risk() {
         </div>
       </motion.div>
 
-      {contraindicationChecks.length > 0 && (
-        <motion.div initial={{ opacity: 0, y: 10 }} animate={{ opacity: 1, y: 0 }} transition={{ delay: 0.2 }}>
-          <h2 className="text-lg font-semibold text-gray-700 mb-3">禁忌症确认</h2>
+      <motion.div initial={{ opacity: 0, y: 10 }} animate={{ opacity: 1, y: 0 }} transition={{ delay: 0.2 }}>
+        <h2 className="text-lg font-semibold text-gray-700 mb-3">禁忌症确认</h2>
+        {contraindicationChecks.length === 0 ? (
+          <div className="p-4 bg-gray-50 rounded-xl border border-gray-200 text-center">
+            <p className="text-sm text-gray-500">当前来意暂无禁忌症需要确认</p>
+          </div>
+        ) : (
           <div className="space-y-3">
             {contraindicationChecks.map((item, i) => (
               <motion.div
@@ -127,8 +139,8 @@ export default function Risk() {
               </motion.div>
             ))}
           </div>
-        </motion.div>
-      )}
+        )}
+      </motion.div>
 
       {doctorInterventionNeeded && (
         <motion.div
@@ -150,16 +162,16 @@ export default function Risk() {
       )}
 
       <motion.div
-        className={`p-4 rounded-2xl border-2 ${config.border} ${config.bg}`}
+        className={`p-5 rounded-2xl border-2 ${config.border} ${config.bg}`}
         initial={{ opacity: 0, y: 10 }}
         animate={{ opacity: 1, y: 0 }}
         transition={{ delay: 0.35 }}
       >
-        <div className="flex items-center gap-3">
-          <config.icon className={`w-6 h-6 ${config.iconColor} shrink-0`} />
+        <div className="flex items-start gap-3">
+          <config.icon className={`w-7 h-7 ${config.iconColor} shrink-0 mt-0.5`} />
           <div>
-            <p className={`font-bold ${config.color}`}>{config.label}</p>
-            <p className="text-sm text-gray-600 mt-0.5">{summaryText}</p>
+            <p className={`font-bold text-base ${config.color}`}>{config.label}</p>
+            <p className="text-sm text-gray-600 mt-1 leading-relaxed">{conclusionText}</p>
           </div>
         </div>
       </motion.div>
