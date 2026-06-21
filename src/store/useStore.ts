@@ -175,11 +175,19 @@ function getSmartRecommendationLogic(
   riskLevel: string
 ): SmartRecommendation | null {
   if (!intent) return null
+  const riskBad = riskLevel === 'red'
+  if (riskBad) {
+    return {
+      recommendedPath: 'combined',
+      reason: '顾客存在高风险因素，安全为第一原则，需联合评估确认治疗的安全性，建议由医生提前介入评估。',
+      conclusion: '安全优先：存在禁忌症或高风险因素，需医生提前介入评估，推荐联合评估路径确认治疗可行性。',
+      confidence: 'high',
+    }
+  }
   const hasFearTag = tags.some((t) => injectionFearTags.includes(t))
   const hasFearText = rawDescription.includes('怕僵') || rawDescription.includes('不自然') || rawDescription.includes('假')
   const isAntiAging = intent === 'anti_aging'
   const hasWrinkleTag = tags.some((t) => wrinkleTags.includes(t))
-  const riskBad = riskLevel === 'red'
   if (isAntiAging && (hasFearTag || hasFearText)) {
     return {
       recommendedPath: 'injection',
@@ -193,14 +201,6 @@ function getSmartRecommendationLogic(
       recommendedPath: 'combined',
       reason: '顾客有明确的抗衰需求且关注面部松弛和皱纹，建议抗衰联合评估，由医生综合制定注射+光电的联合方案。',
       conclusion: '建议进行抗衰联合评估，从筋膜层、真皮层、表皮层多维度设计方案，兼顾提升与肤质改善。',
-      confidence: 'high',
-    }
-  }
-  if (riskBad) {
-    return {
-      recommendedPath: 'combined',
-      reason: '顾客存在高风险因素，需要联合评估以确保安全，建议由多科室医生共同制定方案。',
-      conclusion: '存在禁忌症或高风险因素，需医生提前介入评估，确认治疗的安全性和可行性。',
       confidence: 'high',
     }
   }

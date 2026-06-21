@@ -1,6 +1,6 @@
 import { useState, useMemo } from 'react'
 import { motion, AnimatePresence } from 'framer-motion'
-import { AlertOctagon, CheckCircle2, ChevronRight, Clock, TrendingUp, BarChart3, MessageSquarePlus, Filter, Search, RotateCcw, Radio, ThumbsUp, AlertCircle, BookX, Lightbulb } from 'lucide-react'
+import { AlertOctagon, CheckCircle2, ChevronRight, Clock, TrendingUp, BarChart3, MessageSquarePlus, Filter, Search, RotateCcw, Radio, ThumbsUp, AlertCircle, BookX, Lightbulb, BookOpen, Target, MessageSquare, ChevronDown, ChevronUp } from 'lucide-react'
 import { useStore } from '@/store/useStore'
 import { emotionOptions, visitIntents, triagePaths, openingQuestions } from '@/data/mockData'
 import { PieChart, Pie, Cell, BarChart, Bar, XAxis, YAxis, Tooltip, ResponsiveContainer } from 'recharts'
@@ -34,10 +34,25 @@ const deviationSuggestionMap: Record<string, string[]> = {
   '风险未识别': ['先完成风险核对后再分诊'],
   '其他': ['与主管沟通具体改进方向'],
 }
+const learningCategories = [
+  { key: 'A', title: '风险核对训练', icon: AlertOctagon, theme: 'rose', deviationTypes: ['遗漏病史', '风险未识别'], practiceScript: '您好，为了确保您的治疗安全，需要跟您核对几个重要问题：请问您是否有药物过敏史、既往手术史，目前正在服用哪些药物？另外近期是否做过其他医美项目？' },
+  { key: 'B', title: '话术规范训练', icon: MessageSquare, theme: 'blue', deviationTypes: ['话术不规范'], practiceScript: '您好！很高兴为您服务，今天主要想帮您解决什么问题呢？可以跟我说说您最在意的部位和期望的效果吗？' },
+  { key: 'C', title: '分诊路径训练', icon: Target, theme: 'amber', deviationTypes: ['分诊路径偏差', '其他'], practiceScript: '根据您的需求，我为您推荐{pathLabel}路径的XX医生，TA在这方面有丰富的经验，可以先为您做一个专业的面诊评估。' },
+]
+const themeMap: Record<string, { card: string; badge: string; icon: string; text: string }> = {
+  rose: { card: 'bg-rose-50 border-rose-200', badge: 'bg-rose-500', icon: 'text-rose-500', text: 'text-rose-700' },
+  blue: { card: 'bg-blue-50 border-blue-200', badge: 'bg-blue-500', icon: 'text-blue-500', text: 'text-blue-700' },
+  amber: { card: 'bg-amber-50 border-amber-200', badge: 'bg-amber-500', icon: 'text-amber-500', text: 'text-amber-700' },
+}
 const formatDate = (iso: string) => { const d = new Date(iso); return `${d.getMonth() + 1}月${d.getDate()}日` }
 const getIntentLabel = (id: string) => visitIntents.find(v => v.id === id)?.label || id
 const getEmotionLabel = (id: string) => emotionOptions.find(e => e.id === id)?.label || id
 const getStatusBadge = (s?: string) => (!s ? statusLabels['pending'] : statusLabels[s] || statusLabels['pending'])
+const isWithinDays = (iso: string, days: number) => {
+  const d = new Date(iso).getTime()
+  const now = Date.now()
+  return now - d <= days * 86400000
+}
 
 export default function Review() {
   const { completedRecords, reviews, updateReview, addReview } = useStore()
@@ -49,7 +64,11 @@ export default function Review() {
   const [filterIntent, setFilterIntent] = useState('')
   const [filterRisk, setFilterRisk] = useState('')
   const [filterPath, setFilterPath] = useState('')
+  const [filterSupervisor, setFilterSupervisor] = useState('')
+  const [filterDeviation, setFilterDeviation] = useState('')
+  const [filterTimeRange, setFilterTimeRange] = useState<'今日' | '近7天' | '近30天' | '全部时间'>('全部时间')
   const [modalRecordId, setModalRecordId] = useState<string | null>(null)
+  const [expandedLearningKey, setExpandedLearningKey] = useState<string | null>(null)
   const reviewMap = useMemo(() => new Map(reviews.map(r => [r.consultationId, r])), [reviews])
   const statusCounts = useMemo(() => {
     const counts = { 全部: completedRecords.length, 待改进: 0, 已通过: 0, 待评价: 0 }
@@ -66,8 +85,25 @@ export default function Review() {
     if (filterIntent && r.consultation.visitIntent !== filterIntent) return false
     if (filterRisk && r.riskCheck.riskLevel !== filterRisk) return false
     if (filterPath && r.triageResult.recommendedPath !== filterPath) return false
+    const review = reviewMap.get(r.consultation.id)
+    if (filterSupervisor && !(review?.supervisorComment?.includes(filterSupervisor))) return false
+    if (filterDeviation) {
+      if (filterDeviation === '全部偏差') {
+        if (!review?.deviationType || review.deviationType === '无偏差') return false
+      } else if (review?.deviationType !== filterDeviation) return false
+    }
+    const dateStr = r.consultation.completedAt || r.consultation.createdAt
+    if (filterTimeRange === '今日') {
+      const d = new Date(dateStr)
+      const today = new Date()
+      if (d.toDateString() !== today.toDateString()) return false
+    } else if (filterTimeRange === '近7天') {
+      if (!isWithinDays(dateStr, 7)) return false
+    } else if (filterTimeRange === '近30天') {
+      if (!isWithinDays(dateStr, 30)) return false
+    }
     return true
-  }), [completedRecords, filterName, filterIntent, filterRisk, filterPath])
+  }), [completedRecords, filterName, filterIntent, filterRisk, filterPath, filterSupervisor, filterDeviation, filterTimeRange, reviewMap])
   const pendingImprovementRecords = useMemo(() =>
     filteredRecords.filter(r => reviewMap.get(r.consultation.id)?.status === 'pending_improvement')
   , [filteredRecords, reviewMap])
@@ -80,6 +116,18 @@ export default function Review() {
       return true
     })
   }, [filteredRecords, reviewMap, reviewFilter])
+  const learningTaskData = useMemo(() => {
+    return learningCategories.map(cat => {
+      const records = pendingImprovementRecords.filter(r => {
+        const review = reviewMap.get(r.consultation.id)
+        return review?.deviationType && cat.deviationTypes.includes(review.deviationType)
+      })
+      const comments = records
+        .map(r => reviewMap.get(r.consultation.id)?.supervisorComment)
+        .filter(Boolean) as string[]
+      return { ...cat, records, comments }
+    })
+  }, [pendingImprovementRecords, reviewMap])
   const pathDistribution = useMemo(() => {
     const dist = filteredRecords.reduce<Record<string, number>>((acc, r) => {
       acc[r.triageResult.recommendedPath] = (acc[r.triageResult.recommendedPath] || 0) + 1
@@ -106,7 +154,15 @@ export default function Review() {
     { label: '已通过', value: approvedCount, icon: CheckCircle2, color: 'text-emerald-500' },
     { label: '待改进', value: `${deviationRate}%`, icon: TrendingUp, color: 'text-rose-500' },
   ]
-  const resetFilters = () => { setFilterName(''); setFilterIntent(''); setFilterRisk(''); setFilterPath('') }
+  const resetFilters = () => {
+    setFilterName('')
+    setFilterIntent('')
+    setFilterRisk('')
+    setFilterPath('')
+    setFilterSupervisor('')
+    setFilterDeviation('')
+    setFilterTimeRange('全部时间')
+  }
   const startEdit = (id: string, c: { deviationType?: string; supervisorComment?: string; status?: string }) => {
     setEditingReviewId(id)
     setEditForm({ deviationType: c.deviationType || '', supervisorComment: c.supervisorComment || '', status: c.status === 'pending_improvement' ? 'pending_improvement' : 'approved' })
@@ -194,9 +250,15 @@ export default function Review() {
       <motion.div initial={{ opacity: 0, y: 10 }} animate={{ opacity: 1, y: 0 }} transition={{ delay: 0.15 }} className="bg-white rounded-xl shadow-sm p-4">
         <div className="flex items-center gap-2 mb-3"><Filter className="w-4 h-4 text-gray-500" /><h2 className="text-base font-semibold text-gray-900">筛选条件</h2></div>
         <div className="space-y-3">
-          <div className="relative">
-            <Search className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-gray-400" />
-            <input type="text" placeholder="搜索顾客姓名" value={filterName} onChange={e => setFilterName(e.target.value)} className="w-full pl-9 pr-3 py-2 text-sm border border-gray-200 rounded-lg focus:outline-none focus:ring-2 focus:ring-amber-400" />
+          <div className="grid grid-cols-2 gap-2">
+            <div className="relative">
+              <Search className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-gray-400" />
+              <input type="text" placeholder="搜索顾客姓名" value={filterName} onChange={e => setFilterName(e.target.value)} className="w-full pl-9 pr-3 py-2 text-sm border border-gray-200 rounded-lg focus:outline-none focus:ring-2 focus:ring-amber-400" />
+            </div>
+            <div className="relative">
+              <Search className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-gray-400" />
+              <input type="text" placeholder="搜索主管姓名/评语关键词" value={filterSupervisor} onChange={e => setFilterSupervisor(e.target.value)} className="w-full pl-9 pr-3 py-2 text-sm border border-gray-200 rounded-lg focus:outline-none focus:ring-2 focus:ring-amber-400" />
+            </div>
           </div>
           <div className="grid grid-cols-3 gap-2">
             <select value={filterIntent} onChange={e => setFilterIntent(e.target.value)} className="text-sm border border-gray-200 rounded-lg px-2 py-2 focus:outline-none focus:ring-2 focus:ring-amber-400">
@@ -210,6 +272,16 @@ export default function Review() {
               <option value="">全部路径</option>
               {triagePaths.map(p => <option key={p.id} value={p.id}>{p.label}</option>)}
             </select>
+          </div>
+          <select value={filterDeviation} onChange={e => setFilterDeviation(e.target.value)} className="w-full text-sm border border-gray-200 rounded-lg px-2 py-2 focus:outline-none focus:ring-2 focus:ring-amber-400">
+            <option value="">全部偏差类型</option>
+            <option value="全部偏差">全部偏差</option>
+            {deviationOptions.map(o => <option key={o} value={o}>{o}</option>)}
+          </select>
+          <div className="flex gap-2 flex-wrap">
+            {(['今日', '近7天', '近30天', '全部时间'] as const).map(t => (
+              <button key={t} onClick={() => setFilterTimeRange(t)} className={`px-3 py-1.5 text-xs rounded-full transition-colors ${filterTimeRange === t ? 'bg-amber-500 text-white font-medium' : 'bg-gray-100 text-gray-600 hover:bg-gray-200'}`}>{t}</button>
+            ))}
           </div>
           <button onClick={resetFilters} className="flex items-center gap-1 text-xs text-gray-500 hover:text-amber-600"><RotateCcw className="w-3 h-3" />重置筛选</button>
         </div>
@@ -233,6 +305,74 @@ export default function Review() {
           <BarChart data={barData}><XAxis dataKey="day" tick={{ fontSize: 11 }} /><YAxis allowDecimals={false} tick={{ fontSize: 11 }} /><Tooltip /><Bar dataKey="count" fill="#facc15" radius={[4, 4, 0, 0]} /></BarChart>
         </ResponsiveContainer>
       </motion.div>
+      {pendingImprovementRecords.length > 0 && (
+        <motion.div initial={{ opacity: 0, y: 10 }} animate={{ opacity: 1, y: 0 }} transition={{ delay: 0.33 }}>
+          <div className="flex items-center gap-2 mb-3">
+            <BookOpen className="w-5 h-5 text-indigo-500" />
+            <h2 className="text-base font-semibold text-gray-900">📚 新人学习任务</h2>
+          </div>
+          <div className="space-y-2">
+            {learningTaskData.filter(cat => cat.records.length > 0).map(cat => {
+              const theme = themeMap[cat.theme]
+              const Icon = cat.icon
+              const isExpanded = expandedLearningKey === cat.key
+              return (
+                <div key={cat.key} className={`rounded-xl shadow-sm border ${theme.card} overflow-hidden`}>
+                  <button onClick={() => setExpandedLearningKey(isExpanded ? null : cat.key)} className="w-full px-4 py-3 flex items-center justify-between">
+                    <div className="flex items-center gap-2">
+                      <Icon className={`w-5 h-5 ${theme.icon}`} />
+                      <span className={`text-sm font-semibold ${theme.text}`}>{cat.title}</span>
+                      <span className={`inline-flex items-center justify-center min-w-[20px] h-5 px-1.5 ${theme.badge} text-white text-xs font-bold rounded-full`}>{cat.records.length}</span>
+                    </div>
+                    {isExpanded ? <ChevronUp className={`w-4 h-4 ${theme.icon}`} /> : <ChevronDown className={`w-4 h-4 ${theme.icon}`} />}
+                  </button>
+                  <AnimatePresence>
+                    {isExpanded && (
+                      <motion.div initial={{ height: 0, opacity: 0 }} animate={{ height: 'auto', opacity: 1 }} exit={{ height: 0, opacity: 0 }} className="border-t border-white/50">
+                        <div className="px-4 py-3 space-y-3 bg-white/60">
+                          <div>
+                            <p className={`text-xs font-semibold ${theme.text} mb-1.5`}>案例列表</p>
+                            <div className="space-y-1">
+                              {cat.records.map(r => (
+                                <div key={r.consultation.id} className="flex items-center gap-2 text-xs text-gray-700 bg-white rounded-lg px-2 py-1.5">
+                                  <span className="font-medium text-gray-900">{r.consultation.customerName}</span>
+                                  <span className="text-gray-400">·</span>
+                                  <span>{formatDate(r.consultation.completedAt || r.consultation.createdAt)}</span>
+                                  <span className="text-gray-400">·</span>
+                                  <span className="px-1.5 py-0.5 bg-amber-50 text-amber-700 rounded-full">{getIntentLabel(r.consultation.visitIntent)}</span>
+                                </div>
+                              ))}
+                            </div>
+                          </div>
+                          <div>
+                            <p className={`text-xs font-semibold ${theme.text} mb-1.5`}>主管评语汇总</p>
+                            <div className="space-y-1">
+                              {cat.comments.map((c, i) => (
+                                <p key={i} className="text-xs text-gray-700 bg-white rounded-lg px-2 py-1.5">• {c}</p>
+                              ))}
+                            </div>
+                          </div>
+                          <div className={`rounded-lg p-3 ${theme.card}`}>
+                            <div className="flex items-center gap-1 mb-1.5">
+                              <Lightbulb className={`w-3.5 h-3.5 ${theme.icon}`} />
+                              <p className={`text-xs font-semibold ${theme.text}`}>🎯 可练习话术</p>
+                            </div>
+                            <p className="text-xs text-gray-800 leading-relaxed">
+                              {cat.key === 'C' && cat.records.length > 0
+                                ? cat.practiceScript.replace('{pathLabel}', pathConfig[cat.records[0].triageResult.recommendedPath]?.label || '对应')
+                                : cat.practiceScript}
+                            </p>
+                          </div>
+                        </div>
+                      </motion.div>
+                    )}
+                  </AnimatePresence>
+                </div>
+              )
+            })}
+          </div>
+        </motion.div>
+      )}
       {reviewFilter !== '已通过' && reviewFilter !== '待评价' && pendingImprovementRecords.length > 0 && (
         <motion.div initial={{ opacity: 0, y: 10 }} animate={{ opacity: 1, y: 0 }} transition={{ delay: 0.35 }}>
           <div className="flex items-center justify-between mb-3">
