@@ -1,17 +1,29 @@
 import { useState, useEffect } from 'react'
 import { useNavigate } from 'react-router-dom'
 import { motion, AnimatePresence } from 'framer-motion'
-import { ChevronDown, ChevronUp, Search, Shield, AlertTriangle, ArrowRight } from 'lucide-react'
+import { ChevronDown, ChevronUp, Search, Shield, AlertTriangle, ArrowRight, Plus, Pencil, Trash2, X, Check } from 'lucide-react'
 import { useStore } from '@/store/useStore'
-import { openingQuestions, promiseWarnings, qaLibrary, visitIntents } from '@/data/mockData'
+import { openingQuestions, promiseWarnings, visitIntents } from '@/data/mockData'
+
+interface QAFormState {
+  category: string
+  q: string
+  a: string
+}
+
+const emptyForm: QAFormState = { category: '', q: '', a: '' }
 
 export default function Reception() {
   const navigate = useNavigate()
-  const { currentConsultation, setVisitIntent } = useStore()
+  const { currentConsultation, setVisitIntent, qaItems, addQA, editQA, deleteQA } = useStore()
   const [expandedQ, setExpandedQ] = useState<number | null>(null)
-  const [expandedQA, setExpandedQA] = useState<number | null>(null)
+  const [expandedQA, setExpandedQA] = useState<string | null>(null)
   const [searchText, setSearchText] = useState('')
   const [warningIdx, setWarningIdx] = useState(0)
+  const [showAddForm, setShowAddForm] = useState(false)
+  const [addForm, setAddForm] = useState<QAFormState>(emptyForm)
+  const [editingId, setEditingId] = useState<string | null>(null)
+  const [editForm, setEditForm] = useState<QAFormState>(emptyForm)
 
   const intent = currentConsultation?.visitIntent || 'anti_aging'
   const intentLabel = visitIntents.find(v => v.id === intent)?.label || intent
@@ -39,8 +51,76 @@ export default function Reception() {
   }
 
   const questions = openingQuestions[intent] || []
-  const filteredQA = qaLibrary.filter(
+  const filteredQA = qaItems.filter(
     item => item.q.includes(searchText) || item.a.includes(searchText) || item.category.includes(searchText)
+  )
+
+  const handleAddSave = () => {
+    if (!addForm.q.trim() || !addForm.a.trim()) return
+    addQA({ id: 'qa-' + Date.now(), category: addForm.category.trim(), q: addForm.q.trim(), a: addForm.a.trim() })
+    setAddForm(emptyForm)
+    setShowAddForm(false)
+  }
+
+  const handleEditStart = (item: typeof qaItems[number]) => {
+    setEditingId(item.id)
+    setEditForm({ category: item.category, q: item.q, a: item.a })
+    setExpandedQA(item.id)
+  }
+
+  const handleEditSave = () => {
+    if (!editingId || !editForm.q.trim() || !editForm.a.trim()) return
+    editQA(editingId, { category: editForm.category.trim(), q: editForm.q.trim(), a: editForm.a.trim() })
+    setEditingId(null)
+    setEditForm(emptyForm)
+  }
+
+  const handleEditCancel = () => {
+    setEditingId(null)
+    setEditForm(emptyForm)
+  }
+
+  const QAForm = ({ form, setForm, onSave, onCancel }: {
+    form: QAFormState
+    setForm: React.Dispatch<React.SetStateAction<QAFormState>>
+    onSave: () => void
+    onCancel: () => void
+  }) => (
+    <div className="bg-gold-50 rounded-xl p-4 space-y-3 border border-gold-200">
+      <input
+        value={form.category}
+        onChange={e => setForm(f => ({ ...f, category: e.target.value }))}
+        placeholder="分类（如：抗衰、注射）"
+        className="w-full px-3 py-2 text-sm bg-white rounded-lg border border-gray-200 focus:outline-none focus:ring-2 focus:ring-gold-300"
+      />
+      <input
+        value={form.q}
+        onChange={e => setForm(f => ({ ...f, q: e.target.value }))}
+        placeholder="问题"
+        className="w-full px-3 py-2 text-sm bg-white rounded-lg border border-gray-200 focus:outline-none focus:ring-2 focus:ring-gold-300"
+      />
+      <textarea
+        value={form.a}
+        onChange={e => setForm(f => ({ ...f, a: e.target.value }))}
+        placeholder="回答"
+        rows={3}
+        className="w-full px-3 py-2 text-sm bg-white rounded-lg border border-gray-200 focus:outline-none focus:ring-2 focus:ring-gold-300 resize-none"
+      />
+      <div className="flex gap-2 justify-end">
+        <button
+          onClick={onCancel}
+          className="inline-flex items-center gap-1 px-3 py-1.5 text-sm text-gray-600 bg-white rounded-lg border border-gray-200 hover:bg-gray-50 transition-colors"
+        >
+          <X className="w-3.5 h-3.5" /> 取消
+        </button>
+        <button
+          onClick={onSave}
+          className="inline-flex items-center gap-1 px-3 py-1.5 text-sm text-white bg-gold-500 rounded-lg hover:bg-gold-600 transition-colors"
+        >
+          <Check className="w-3.5 h-3.5" /> 保存
+        </button>
+      </div>
+    </div>
   )
 
   return (
@@ -121,7 +201,7 @@ export default function Reception() {
       </div>
 
       <h2 className="text-lg font-semibold text-gray-800 mb-3">Q&amp;A 知识库</h2>
-      <div className="relative mb-4">
+      <div className="relative mb-3">
         <Search className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-gray-400" />
         <input
           value={searchText}
@@ -130,33 +210,96 @@ export default function Reception() {
           className="w-full pl-9 pr-4 py-2.5 bg-white rounded-xl border border-gray-200 text-sm focus:outline-none focus:ring-2 focus:ring-gold-300"
         />
       </div>
+
+      <button
+        onClick={() => { setShowAddForm(!showAddForm); setAddForm(emptyForm) }}
+        className="w-full flex items-center justify-center gap-1.5 px-4 py-2.5 mb-4 text-sm font-medium text-gold-600 bg-gold-50 rounded-xl border border-dashed border-gold-300 hover:bg-gold-100 transition-colors"
+      >
+        <Plus className="w-4 h-4" /> 新增问答
+      </button>
+
+      <AnimatePresence>
+        {showAddForm && (
+          <motion.div
+            initial={{ height: 0, opacity: 0 }}
+            animate={{ height: 'auto', opacity: 1 }}
+            exit={{ height: 0, opacity: 0 }}
+            transition={{ duration: 0.2 }}
+            className="overflow-hidden mb-4"
+          >
+            <QAForm
+              form={addForm}
+              setForm={setAddForm}
+              onSave={handleAddSave}
+              onCancel={() => { setShowAddForm(false); setAddForm(emptyForm) }}
+            />
+          </motion.div>
+        )}
+      </AnimatePresence>
+
       <div className="space-y-3">
-        {filteredQA.map((item, idx) => (
-          <div key={idx} className="bg-white rounded-xl shadow-sm border border-gray-100 overflow-hidden">
-            <button
-              onClick={() => setExpandedQA(expandedQA === idx ? null : idx)}
-              className="w-full flex items-center justify-between px-4 py-3 text-left"
-            >
-              <span className="text-sm font-medium text-gray-800">{item.q}</span>
-              {expandedQA === idx ? (
-                <ChevronUp className="w-4 h-4 text-gold-500 shrink-0" />
-              ) : (
-                <ChevronDown className="w-4 h-4 text-gray-400 shrink-0" />
-              )}
-            </button>
-            <AnimatePresence>
-              {expandedQA === idx && (
-                <motion.div
-                  initial={{ height: 0, opacity: 0 }}
-                  animate={{ height: 'auto', opacity: 1 }}
-                  exit={{ height: 0, opacity: 0 }}
-                  transition={{ duration: 0.2 }}
-                  className="overflow-hidden"
-                >
-                  <p className="px-4 pb-3 text-sm text-gray-600 leading-relaxed">{item.a}</p>
-                </motion.div>
-              )}
-            </AnimatePresence>
+        {filteredQA.map(item => (
+          <div key={item.id} className="bg-white rounded-xl shadow-sm border border-gray-100 overflow-hidden">
+            {editingId === item.id ? (
+              <div className="p-4">
+                <QAForm
+                  form={editForm}
+                  setForm={setEditForm}
+                  onSave={handleEditSave}
+                  onCancel={handleEditCancel}
+                />
+              </div>
+            ) : (
+              <>
+                <div className="flex items-center">
+                  <button
+                    onClick={() => setExpandedQA(expandedQA === item.id ? null : item.id)}
+                    className="flex-1 flex items-center justify-between px-4 py-3 text-left"
+                  >
+                    <span className="text-sm font-medium text-gray-800">{item.q}</span>
+                    {expandedQA === item.id ? (
+                      <ChevronUp className="w-4 h-4 text-gold-500 shrink-0" />
+                    ) : (
+                      <ChevronDown className="w-4 h-4 text-gray-400 shrink-0" />
+                    )}
+                  </button>
+                  <div className="flex items-center gap-1 pr-3">
+                    <button
+                      onClick={() => handleEditStart(item)}
+                      className="p-1.5 text-gray-400 hover:text-gold-500 hover:bg-gold-50 rounded-lg transition-colors"
+                    >
+                      <Pencil className="w-3.5 h-3.5" />
+                    </button>
+                    <button
+                      onClick={() => deleteQA(item.id)}
+                      className="p-1.5 text-gray-400 hover:text-coral-500 hover:bg-coral-50 rounded-lg transition-colors"
+                    >
+                      <Trash2 className="w-3.5 h-3.5" />
+                    </button>
+                  </div>
+                </div>
+                <AnimatePresence>
+                  {expandedQA === item.id && (
+                    <motion.div
+                      initial={{ height: 0, opacity: 0 }}
+                      animate={{ height: 'auto', opacity: 1 }}
+                      exit={{ height: 0, opacity: 0 }}
+                      transition={{ duration: 0.2 }}
+                      className="overflow-hidden"
+                    >
+                      <div className="px-4 pb-3">
+                        {item.category && (
+                          <span className="inline-block px-2 py-0.5 mb-2 text-xs font-medium text-gold-700 bg-gold-100 rounded-full">
+                            {item.category}
+                          </span>
+                        )}
+                        <p className="text-sm text-gray-600 leading-relaxed">{item.a}</p>
+                      </div>
+                    </motion.div>
+                  )}
+                </AnimatePresence>
+              </>
+            )}
           </div>
         ))}
         {filteredQA.length === 0 && (

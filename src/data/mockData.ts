@@ -201,6 +201,13 @@ export const triagePaths = [
     description: '适用于需要手术干预的眼袋、隆鼻、轮廓等',
     color: 'from-rose-400 to-pink-500',
   },
+  {
+    id: 'combined',
+    label: '联合评估',
+    icon: '🔄',
+    description: '适用于多维度需求，需医生联合制定综合方案',
+    color: 'from-amber-400 to-orange-500',
+  },
 ]
 
 export const emotionOptions = [

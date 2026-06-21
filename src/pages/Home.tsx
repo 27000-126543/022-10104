@@ -3,7 +3,7 @@ import { useNavigate } from 'react-router-dom'
 import { motion, AnimatePresence } from 'framer-motion'
 import { Plus, Clock, Users, BookOpen, AlertCircle, ChevronRight } from 'lucide-react'
 import { useStore } from '@/store/useStore'
-import { visitIntents } from '@/data/mockData'
+import { visitIntents, contraindicationMap } from '@/data/mockData'
 
 const getGreeting = () => {
   const h = new Date().getHours()
@@ -39,7 +39,8 @@ export default function Home() {
   const reviewPendingCount = 1
 
   const handleIntent = (id: string) => {
-    startConsultation(id)
+    const contraChecks = (contraindicationMap[id] || []).map(item => ({ item, present: false }))
+    startConsultation(id, contraChecks)
     setShowModal(false)
     navigate('/reception')
   }

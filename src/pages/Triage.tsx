@@ -3,44 +3,109 @@ import { useNavigate } from 'react-router-dom'
 import { motion } from 'framer-motion'
 import { CheckCircle, ArrowRight, FileText, Copy } from 'lucide-react'
 import { useStore } from '@/store/useStore'
-import { triagePaths, emotionOptions } from '@/data/mockData'
+import { triagePaths, emotionOptions, visitIntents } from '@/data/mockData'
 
 const emotionLabelMap = Object.fromEntries(emotionOptions.map((e) => [e.id, e.label]))
+
+const injectionFearTags = ['怕僵', '自然效果优先', '过度填充顾虑', '渐进式改善需求']
 
 const riskConfig: Record<string, { label: string; color: string }> = {
   green: { label: '低风险', color: 'text-green-600 bg-green-50' },
   yellow: { label: '中风险', color: 'text-yellow-600 bg-yellow-50' },
   red: { label: '高风险', color: 'text-red-600 bg-red-50' },
+  combined: { label: '联合评估', color: 'text-amber-600 bg-amber-50' },
 }
 
-function generateReason(intent: string, pathId: string): string {
+function generateReason(intent: string, pathId: string, tags: string[]): string {
+  const hasFearTag = tags.some((t) => injectionFearTags.includes(t))
   const map: Record<string, Record<string, string>> = {
     anti_aging: {
-      injection: '基于抗衰需求及顾客对自然效果的关注，推荐注射微整路径',
+      injection: hasFearTag
+        ? '基于顾客对自然效果的关注和怕僵顾虑，推荐注射微整路径，由注射医生把控用量确保自然'
+        : '基于抗衰需求及顾客对自然效果的关注，推荐注射微整路径',
       laser: '建议光电联合方案改善胶原再生',
       surgery: '如松弛程度较重可考虑外科方案',
       skin_management: '建议先通过皮肤管理建立基础',
+      combined: '顾客需求多维，建议抗衰联合评估，由医生综合制定注射+光电方案',
     },
     whitening: {
       laser: '光电方案对色素改善最为直接有效',
       skin_management: '皮肤管理可配合巩固美白效果',
       injection: '水光类注射可辅助提亮肤色',
       surgery: '美白需求通常无需外科干预',
+      combined: '美白需求可联合光电+皮肤管理，分层改善色素与肤质',
     },
     contouring: {
       injection: '注射类项目对轮廓微调效果显著且恢复期短',
       surgery: '如骨性轮廓问题突出，可考虑外科方案',
       laser: '光电类对脂肪型轮廓问题有辅助作用',
       skin_management: '皮肤管理可改善面部紧致度辅助轮廓',
+      combined: '轮廓塑形可联合注射+光电，兼顾骨骼层与脂肪层改善',
     },
     skin_repair: {
       skin_management: '皮肤管理是屏障修复和肤质改善的首选路径',
       laser: '光电可辅助促进修复和胶原再生',
       injection: '中胚层疗法可辅助皮肤修复',
       surgery: '肌肤修复通常无需外科干预',
+      combined: '肌肤修复可联合皮肤管理+光电，系统性改善屏障与质地',
+    },
+    acne: {
+      skin_management: '痘肌管理首选皮肤管理路径，规范清洁与控油',
+      laser: '光电可辅助消炎杀菌及改善痘印',
+      injection: '中胚层疗法可辅助控油和抗炎',
+      surgery: '痘肌通常无需外科干预',
+      combined: '痘肌问题可联合皮肤管理+光电，同步控油与修复痘印',
+    },
+    body_sculpt: {
+      laser: '光电类对局部脂肪消融有良好效果',
+      injection: '溶脂针等注射可辅助局部塑形',
+      surgery: '如脂肪量较大可考虑吸脂等外科方案',
+      skin_management: '皮肤管理可辅助紧致塑形后皮肤',
+      combined: '体雕塑身可联合光电+注射，分层次管理脂肪与紧致度',
+    },
+    eye_rejuvenation: {
+      injection: '注射类可改善鱼尾纹及眼周细纹',
+      laser: '光电可改善黑眼圈及眼周松弛',
+      surgery: '眼袋及上睑松弛可考虑外科方案',
+      skin_management: '皮肤管理可辅助眼周保湿与细纹改善',
+      combined: '眼部年轻化可联合注射+光电，综合改善皱纹与松弛',
+    },
+    lip_enhancement: {
+      injection: '玻尿酸注射是唇部塑形的首选方案',
+      laser: '光电可辅助改善唇周暗沉',
+      surgery: '唇部通常无需外科干预',
+      skin_management: '皮肤管理可辅助唇周保湿与细纹淡化',
+      combined: '唇部美化可联合注射+皮肤管理，兼顾唇形与唇周状态',
+    },
+    scar_repair: {
+      laser: '光电是改善疤痕质地和颜色的有效手段',
+      injection: '疤痕针等注射可辅助抑制增生',
+      skin_management: '皮肤管理可辅助疤痕区域修复与保湿',
+      surgery: '严重增生性疤痕可考虑外科切除重建',
+      combined: '疤痕修复可联合光电+注射，多维度改善色泽与平整度',
+    },
+    hair_restoration: {
+      skin_management: '头皮管理可改善毛囊环境辅助生发',
+      injection: '中胚层疗法可营养毛囊促进生发',
+      laser: '低能量激光可辅助激活毛囊',
+      surgery: '严重脱发可考虑植发手术',
+      combined: '毛发管理可联合注射+光电，系统性改善毛囊活性与头皮环境',
     },
   }
   return map[intent]?.[pathId] || '综合评估后推荐此路径，建议进一步面诊确认方案'
+}
+
+function getDefaultPath(intent: string, tags: string[]): string {
+  if (intent === 'anti_aging') {
+    const hasFearTag = tags.some((t) => injectionFearTags.includes(t))
+    if (hasFearTag) return 'injection'
+    const hasSagWrinkle = tags.some((t) => t === '面部松弛改善' || t === '皱纹减少')
+    if (hasSagWrinkle) return 'combined'
+  }
+  if (intent === 'whitening') return 'laser'
+  if (intent === 'contouring') return 'injection'
+  if (intent === 'skin_repair') return 'skin_management'
+  return ''
 }
 
 export default function Triage() {
@@ -51,10 +116,17 @@ export default function Triage() {
   const [copied, setCopied] = useState(false)
 
   const intentKey = currentConsultation?.visitIntent || ''
+  const tags = currentProfile?.standardTags || []
+
+  useEffect(() => {
+    if (selectedPath) return
+    const defaultPath = getDefaultPath(intentKey, tags)
+    if (defaultPath) setSelectedPath(defaultPath)
+  }, [])
 
   useEffect(() => {
     if (!selectedPath) return
-    const r = generateReason(intentKey, selectedPath)
+    const r = generateReason(intentKey, selectedPath, tags)
     setReason(r)
   }, [selectedPath, intentKey])
 
@@ -64,13 +136,15 @@ export default function Triage() {
     const emotionLabel = emotionLabelMap[currentProfile?.emotion || ''] || '未评估'
     const risk = currentRiskCheck?.riskLevel || 'green'
     const riskLabel = riskConfig[risk]?.label || '未评估'
+    const intentLabel = visitIntents.find((v) => v.id === currentConsultation?.visitIntent)?.label || currentConsultation?.visitIntent || '未记录'
     const summary = [
-      `顾客来意：${currentConsultation?.visitIntent || '未记录'}`,
+      `顾客来意：${intentLabel}`,
       `标准诉求：${currentProfile?.standardTags?.join('、') || '无'}`,
       `顾客情绪：${emotionLabel}`,
       `核心顾虑：${currentProfile?.concern || '无'}`,
       `风险等级：${riskLabel}`,
       `推荐路径：${pathLabel}`,
+      `推荐理由：${reason}`,
     ].join('\n')
     updateTriageResult({ recommendedPath: selectedPath as any, reason, summary })
   }, [selectedPath, reason])
@@ -92,13 +166,16 @@ export default function Triage() {
     )
   }
 
+  const intentLabel = visitIntents.find((v) => v.id === currentConsultation.visitIntent)?.label || currentConsultation.visitIntent
+
   return (
     <div className="max-w-lg mx-auto px-4 pb-24">
       <h1 className="text-2xl font-bold text-gray-800 mb-6 text-center">分诊建议</h1>
 
       <div className="grid grid-cols-2 gap-3 mb-6">
-        {triagePaths.map((path) => {
+        {triagePaths.map((path, index) => {
           const isSelected = selectedPath === path.id
+          const isLast = index === triagePaths.length - 1 && triagePaths.length % 2 !== 0
           return (
             <motion.button
               key={path.id}
@@ -107,7 +184,7 @@ export default function Triage() {
               onClick={() => setSelectedPath(path.id)}
               className={`relative rounded-2xl p-4 text-left bg-gradient-to-br ${path.color} text-white shadow-md transition-shadow ${
                 isSelected ? 'ring-3 ring-amber-400 shadow-lg' : ''
-              }`}
+              } ${isLast ? 'col-span-2' : ''}`}
             >
               {isSelected && (
                 <motion.div
@@ -158,7 +235,7 @@ export default function Triage() {
             面诊前摘要
           </h2>
           <div className="rounded-2xl bg-white border border-gray-200 p-5 shadow-sm space-y-2.5">
-            <SummaryRow label="顾客来意" value={currentConsultation.visitIntent} />
+            <SummaryRow label="顾客来意" value={intentLabel} />
             <SummaryRow label="标准诉求" value={currentProfile?.standardTags?.join('、') || '无'} />
             <SummaryRow
               label="顾客情绪"
@@ -179,6 +256,7 @@ export default function Triage() {
               label="推荐路径"
               value={triagePaths.find((p) => p.id === selectedPath)?.label || ''}
             />
+            <SummaryRow label="推荐理由" value={reason} />
             <div className="pt-2 border-t border-gray-100">
               <button
                 onClick={handleCopy}
@@ -216,7 +294,7 @@ function SummaryRow({ label, value }: { label: string; value: string }) {
   return (
     <div className="flex items-center justify-between">
       <span className="text-sm text-gray-500">{label}</span>
-      <span className="text-sm text-gray-800 font-medium">{value}</span>
+      <span className="text-sm text-gray-800 font-medium text-right max-w-[60%]">{value}</span>
     </div>
   )
 }
