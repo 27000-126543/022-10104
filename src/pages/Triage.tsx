@@ -1,13 +1,13 @@
-import { useState, useEffect } from 'react'
+import { useState, useEffect, useMemo } from 'react'
 import { useNavigate } from 'react-router-dom'
 import { motion, AnimatePresence } from 'framer-motion'
-import { CheckCircle, ArrowRight, FileText, Copy, Sparkles, Target } from 'lucide-react'
+import {
+  Sparkles, Target, CheckCircle, ArrowRight, FileText, Copy, ShieldAlert, BookOpenCheck, MessageCircle, Tag, AlertTriangle
+} from 'lucide-react'
 import { useStore } from '@/store/useStore'
 import { triagePaths, emotionOptions, visitIntents } from '@/data/mockData'
 
 const emotionLabelMap = Object.fromEntries(emotionOptions.map((e) => [e.id, e.label]))
-
-const injectionFearTags = ['怕僵', '自然效果优先', '过度填充顾虑', '渐进式改善需求']
 
 const riskConfig: Record<string, { label: string; color: string }> = {
   green: { label: '低风险', color: 'text-green-600 bg-green-50' },
@@ -16,110 +16,69 @@ const riskConfig: Record<string, { label: string; color: string }> = {
   combined: { label: '联合评估', color: 'text-amber-600 bg-amber-50' },
 }
 
-function generateReason(intent: string, pathId: string, tags: string[]): string {
-  const hasFearTag = tags.some((t) => injectionFearTags.includes(t))
-  const map: Record<string, Record<string, string>> = {
-    anti_aging: {
-      injection: hasFearTag
-        ? '基于顾客对自然效果的关注和怕僵顾虑，推荐注射微整路径，由注射医生把控用量确保自然'
-        : '基于抗衰需求及顾客对自然效果的关注，推荐注射微整路径',
-      laser: '建议光电联合方案改善胶原再生',
-      surgery: '如松弛程度较重可考虑外科方案',
-      skin_management: '建议先通过皮肤管理建立基础',
-      combined: '顾客需求多维，建议抗衰联合评估，由医生综合制定注射+光电方案',
-    },
-    whitening: {
-      laser: '光电方案对色素改善最为直接有效',
-      skin_management: '皮肤管理可配合巩固美白效果',
-      injection: '水光类注射可辅助提亮肤色',
-      surgery: '美白需求通常无需外科干预',
-      combined: '美白需求可联合光电+皮肤管理，分层改善色素与肤质',
-    },
-    contouring: {
-      injection: '注射类项目对轮廓微调效果显著且恢复期短',
-      surgery: '如骨性轮廓问题突出，可考虑外科方案',
-      laser: '光电类对脂肪型轮廓问题有辅助作用',
-      skin_management: '皮肤管理可改善面部紧致度辅助轮廓',
-      combined: '轮廓塑形可联合注射+光电，兼顾骨骼层与脂肪层改善',
-    },
-    skin_repair: {
-      skin_management: '皮肤管理是屏障修复和肤质改善的首选路径',
-      laser: '光电可辅助促进修复和胶原再生',
-      injection: '中胚层疗法可辅助皮肤修复',
-      surgery: '肌肤修复通常无需外科干预',
-      combined: '肌肤修复可联合皮肤管理+光电，系统性改善屏障与质地',
-    },
-    acne: {
-      skin_management: '痘肌管理首选皮肤管理路径，规范清洁与控油',
-      laser: '光电可辅助消炎杀菌及改善痘印',
-      injection: '中胚层疗法可辅助控油和抗炎',
-      surgery: '痘肌通常无需外科干预',
-      combined: '痘肌问题可联合皮肤管理+光电，同步控油与修复痘印',
-    },
-    body_sculpt: {
-      laser: '光电类对局部脂肪消融有良好效果',
-      injection: '溶脂针等注射可辅助局部塑形',
-      surgery: '如脂肪量较大可考虑吸脂等外科方案',
-      skin_management: '皮肤管理可辅助紧致塑形后皮肤',
-      combined: '体雕塑身可联合光电+注射，分层次管理脂肪与紧致度',
-    },
-    eye_rejuvenation: {
-      injection: '注射类可改善鱼尾纹及眼周细纹',
-      laser: '光电可改善黑眼圈及眼周松弛',
-      surgery: '眼袋及上睑松弛可考虑外科方案',
-      skin_management: '皮肤管理可辅助眼周保湿与细纹改善',
-      combined: '眼部年轻化可联合注射+光电，综合改善皱纹与松弛',
-    },
-    lip_enhancement: {
-      injection: '玻尿酸注射是唇部塑形的首选方案',
-      laser: '光电可辅助改善唇周暗沉',
-      surgery: '唇部通常无需外科干预',
-      skin_management: '皮肤管理可辅助唇周保湿与细纹淡化',
-      combined: '唇部美化可联合注射+皮肤管理，兼顾唇形与唇周状态',
-    },
-    scar_repair: {
-      laser: '光电是改善疤痕质地和颜色的有效手段',
-      injection: '疤痕针等注射可辅助抑制增生',
-      skin_management: '皮肤管理可辅助疤痕区域修复与保湿',
-      surgery: '严重增生性疤痕可考虑外科切除重建',
-      combined: '疤痕修复可联合光电+注射，多维度改善色泽与平整度',
-    },
-    hair_restoration: {
-      skin_management: '头皮管理可改善毛囊环境辅助生发',
-      injection: '中胚层疗法可营养毛囊促进生发',
-      laser: '低能量激光可辅助激活毛囊',
-      surgery: '严重脱发可考虑植发手术',
-      combined: '毛发管理可联合注射+光电，系统性改善毛囊活性与头皮环境',
-    },
+const standardTagsList = [
+  '抗衰年轻化', '面部松弛改善', '皱纹减少', '自然效果优先', '过度填充顾虑', '渐进式改善需求',
+  '轮廓塑形', '咬肌肥大/脂肪堆积鉴别', '下颌线优化', '肌肤修复', '屏障修复', '肤色改善',
+  '色素管理', '美白提亮', '防晒需求', '体雕塑身', '脂肪管理', '局部塑形',
+  '眼部年轻化', '眼袋改善', '眶隔脂肪管理', '痘肌管理', '色素沉着', '肤质改善',
+  '唇部美化', '唇形优化', '丰唇需求', '疤痕修复', '创伤修复', '皮肤重建',
+]
+
+function highlightKeyPhrases(text: string, tags: string[]) {
+  if (!text || !text.trim()) return <span className="text-gray-500">暂未记录</span>
+  let result: (string | JSX.Element)[] = [text]
+  const matchedTags = tags.filter(t => text.includes(t))
+  if (matchedTags.length > 0) {
+    matchedTags.forEach(tag => {
+      const newResult: (string | JSX.Element)[] = []
+      result.forEach(segment => {
+        if (typeof segment === 'string') {
+          const parts = segment.split(new RegExp(`(${tag})`, 'g'))
+          parts.forEach((part, i) => {
+            if (part === tag) {
+            newResult.push(<mark key={`${tag}-${i}`} className="bg-amber-100 text-amber-800 px-1 rounded font-medium">{part}</mark>)
+            } else if (part) {
+              newResult.push(part)
+            }
+          })
+        } else {
+          newResult.push(segment)
+        }
+      })
+      result = newResult
+    })
   }
-  return map[intent]?.[pathId] || '综合评估后推荐此路径，建议进一步面诊确认方案'
+  return <>{result}</>
 }
 
 export default function Triage() {
   const navigate = useNavigate()
-  const { currentConsultation, currentProfile, currentRiskCheck, currentTriageResult, updateTriageResult, completeConsultation, getSmartRecommendation } = useStore()
-  const [selectedPath, setSelectedPath] = useState<string>(currentTriageResult?.recommendedPath || '')
-  const [reason, setReason] = useState(currentTriageResult?.reason || '')
-  const [smartRecommendation, setSmartRecommendation] = useState(getSmartRecommendation())
+  const {
+    currentConsultation, currentProfile, currentRiskCheck, currentTriageResult,
+    updateTriageResult, completeConsultation, getSmartRecommendation
+  } = useStore()
+
+  const smartRecommendation = useMemo(() => getSmartRecommendation(), [])
+  const [selectedPath, setSelectedPath] = useState<string>(smartRecommendation?.recommendedPath || '')
+  const [reason, setReason] = useState(smartRecommendation?.reason || '')
+  const [conclusion, setConclusion] = useState(smartRecommendation?.conclusion || '')
   const [copied, setCopied] = useState(false)
+  const [evidenceOpen, setEvidenceOpen] = useState(true)
 
   const intentKey = currentConsultation?.visitIntent || ''
   const tags = currentProfile?.standardTags || []
+  const rawDescription = currentProfile?.rawDescription || ''
   const riskLevel = currentRiskCheck?.riskLevel || 'green'
+  const presentContraindications = currentRiskCheck?.contraindicationChecks?.filter(c => c.present).map(c => c.item) || []
 
   useEffect(() => {
     const rec = getSmartRecommendation()
-    setSmartRecommendation(rec)
-    if (rec && rec.confidence === 'high' && !selectedPath) {
+    if (rec) {
       setSelectedPath(rec.recommendedPath)
+      setReason(rec.reason)
+      setConclusion(rec.conclusion)
     }
-  }, [currentConsultation, currentProfile?.standardTags, currentProfile?.rawDescription, riskLevel])
-
-  useEffect(() => {
-    if (!selectedPath) return
-    const r = generateReason(intentKey, selectedPath, tags)
-    setReason(r)
-  }, [selectedPath, intentKey, tags])
+  }, [intentKey, tags, rawDescription, riskLevel])
 
   useEffect(() => {
     if (!selectedPath) return
@@ -127,10 +86,9 @@ export default function Triage() {
     const emotionLabel = emotionLabelMap[currentProfile?.emotion || ''] || '未评估'
     const riskLabel = riskConfig[riskLevel]?.label || '未评估'
     const intentLabel = visitIntents.find((v) => v.id === intentKey)?.label || intentKey || '未记录'
-    const conclusion = smartRecommendation?.conclusion || ''
     const summary = [
       `顾客来意：${intentLabel}`,
-      `标准诉求：${currentProfile?.standardTags?.join('、') || '无'}`,
+      `标准诉求：${tags.join('、') || '无'}`,
       `顾客情绪：${emotionLabel}`,
       `核心顾虑：${currentProfile?.concern || '无'}`,
       `风险等级：${riskLabel}`,
@@ -138,14 +96,37 @@ export default function Triage() {
       `推荐理由：${reason}`,
       `分诊结论：${conclusion || '建议进一步面诊确认方案'}`,
     ].join('\n')
-    updateTriageResult({ recommendedPath: selectedPath as any, reason, summary })
-  }, [selectedPath, reason, smartRecommendation?.conclusion])
+    updateTriageResult({
+      recommendedPath: selectedPath as any,
+      reason,
+      summary,
+    })
+  }, [selectedPath, reason, conclusion])
 
   const handleCopy = async () => {
     const text = currentTriageResult?.summary || ''
     await navigator.clipboard.writeText(text)
     setCopied(true)
     setTimeout(() => setCopied(false), 2000)
+  }
+
+  const handleSelectPath = (pathId: string) => {
+    setSelectedPath(pathId)
+    const rec = getSmartRecommendation()
+    if (pathId === rec?.recommendedPath) {
+      setReason(rec.reason)
+      setConclusion(rec.conclusion)
+    } else {
+      const genericReasons: Record<string, string> = {
+        skin_management: '选择皮肤管理路径，温和改善肤质基础',
+        laser: '选择光电治疗路径，针对性解决色素/胶原问题',
+        injection: '选择注射微整路径，快速改善轮廓/皱纹',
+        surgery: '选择外科手术路径，结构性调整',
+        combined: '选择联合评估路径，综合多维度方案',
+      }
+      setReason(genericReasons[pathId] || '综合评估后推荐此路径')
+      setConclusion('建议面诊医生确认最终方案')
+    }
   }
 
   if (!currentConsultation) {
@@ -167,7 +148,27 @@ export default function Triage() {
 
   return (
     <div className="max-w-lg mx-auto px-4 pb-24">
-      <h1 className="text-2xl font-bold text-gray-800 mb-6 text-center">分诊建议</h1>
+      <motion.h1 initial={{ opacity: 0, y: -10 }} animate={{ opacity: 1, y: 0 }} className="text-2xl font-bold text-gray-800 mb-6 text-center">分诊建议</motion.h1>
+
+      <AnimatePresence>
+        {riskLevel === 'red' && (
+          <motion.div
+            initial={{ opacity: 0, y: -12 }}
+            animate={{ opacity: 1, y: 0 }}
+            exit={{ opacity: 0, y: -12 }}
+            className="mb-4 rounded-2xl bg-gradient-to-r from-red-50 to-rose-50 border-2 border-red-200 p-4 shadow-sm"
+          >
+            <div className="flex items-start gap-3">
+              <ShieldAlert className="w-6 h-6 text-red-500 shrink-0 mt-0.5" />
+              <div className="flex-1">
+                <p className="text-sm font-bold text-red-700 leading-relaxed">
+                  🚨 安全优先：存在高风险因素，推荐联合评估/医生介入优先
+                </p>
+              </div>
+            </div>
+          </motion.div>
+        )}
+      </AnimatePresence>
 
       <AnimatePresence>
         {smartRecommendation && (
@@ -205,16 +206,117 @@ export default function Triage() {
         )}
       </AnimatePresence>
 
+      <AnimatePresence>
+        {smartRecommendation && (
+          <motion.div
+            initial={{ opacity: 0, y: 12 }}
+            animate={{ opacity: 1, y: 0 }}
+            className="mb-6"
+          >
+            <button
+              onClick={() => setEvidenceOpen(!evidenceOpen)}
+              className="w-full flex items-center justify-between rounded-2xl bg-white border border-gray-200 p-4 shadow-sm hover:shadow-md transition-shadow"
+            >
+              <div className="flex items-center gap-2">
+                <BookOpenCheck className="w-5 h-5 text-emerald-500" />
+                <span className="font-semibold text-gray-800">推荐依据拆解</span>
+              </div>
+              <ArrowRight className={`w-4 h-4 text-gray-400 transition-transform ${evidenceOpen ? 'rotate-90' : ''}`} />
+            </button>
+            <AnimatePresence>
+              {evidenceOpen && (
+                <motion.div
+                initial={{ height: 0, opacity: 0 }}
+                animate={{ height: 'auto', opacity: 1 }}
+                exit={{ height: 0, opacity: 0 }}
+                className="overflow-hidden"
+              >
+                <div className="mt-3 rounded-2xl bg-white border border-gray-200 p-4 space-y-4">
+                  <div className="flex gap-3">
+                    <MessageCircle className="w-5 h-5 text-sky-500 shrink-0 mt-0.5" />
+                    <div className="flex-1">
+                      <p className="text-xs font-semibold text-sky-700 mb-1">💬 顾客原话</p>
+                      <p className="text-sm text-gray-700 leading-relaxed">
+                        {highlightKeyPhrases(rawDescription, tags)}
+                      </p>
+                    </div>
+                  </div>
+                  <div className="border-t border-gray-100" />
+                  <div className="flex gap-3">
+                    <Tag className="w-5 h-5 text-violet-500 shrink-0 mt-0.5" />
+                    <div className="flex-1">
+                      <p className="text-xs font-semibold text-violet-700 mb-2">🏷️ 画像标签</p>
+                      {tags.length > 0 ? (
+                        <div className="flex flex-wrap gap-1.5">
+                          {tags.map((t, i) => {
+                            const isStandard = standardTagsList.includes(t)
+                            return (
+                              <span
+                                key={i}
+                                className={`px-2.5 py-1 text-xs font-medium rounded-full ${
+                                  isStandard
+                                    ? 'bg-violet-50 text-violet-700 border border-violet-200'
+                                    : 'bg-gray-50 text-gray-700 border border-gray-200'
+                                }`}
+                              >
+                                {t}
+                              </span>
+                            )
+                          })}
+                        </div>
+                      ) : (
+                        <p className="text-sm text-gray-500">暂未整理</p>
+                      )}
+                    </div>
+                  </div>
+                  <div className="border-t border-gray-100" />
+                  <div className="flex gap-3">
+                    <AlertTriangle className={`w-5 h-5 shrink-0 mt-0.5 ${riskLevel === 'red' ? 'text-red-500' : riskLevel === 'yellow' ? 'text-yellow-500' : 'text-green-500'}`} />
+                    <div className="flex-1">
+                      <p className={`text-xs font-semibold mb-2 ${riskLevel === 'red' ? 'text-red-700' : riskLevel === 'yellow' ? 'text-yellow-700' : 'text-green-700'}`}>⚠️ 风险核对</p>
+                      <div className="flex flex-wrap items-center gap-2">
+                        <span className={`text-xs font-semibold px-2.5 py-1 rounded-full ${riskConfig[riskLevel]?.color}`}>
+                          {riskConfig[riskLevel]?.label}
+                        </span>
+                        {riskLevel === 'red' && presentContraindications.length > 0 && (
+                          <div className="w-full mt-2">
+                            <p className="text-xs text-red-600 font-medium flex flex-wrap gap-1">
+                              {presentContraindications.map((c, i) => (
+                                <span key={i} className="inline-flex items-center gap-1 bg-red-50 px-2 py-0.5 rounded">
+                                  <ShieldAlert className="w-3 h-3" />
+                                  {c}
+                                </span>
+                              ))}
+                            </p>
+                          </div>
+                        )}
+                      </div>
+                    </div>
+                  </div>
+                  <div className="border-t border-gray-100 pt-3">
+                    <p className="text-sm text-emerald-600 font-semibold flex items-center gap-1.5">
+                      <CheckCircle className="w-4 h-4" />
+                      基于以上三项综合判断
+                    </p>
+                  </div>
+                </div>
+              </motion.div>
+              )}
+            </AnimatePresence>
+          </motion.div>
+        )}
+      </AnimatePresence>
+
       <div className="grid grid-cols-2 gap-3 mb-6">
         {triagePaths.map((path, index) => {
           const isSelected = selectedPath === path.id
-          const isLast = index === triagePaths.length - 1 && triagePaths.length % 2 !== 0
+          const isLast = index === triagePaths.length - 1
           return (
             <motion.button
               key={path.id}
               whileTap={{ scale: 0.96 }}
               animate={isSelected ? { scale: 1.03 } : { scale: 1 }}
-              onClick={() => setSelectedPath(path.id)}
+              onClick={() => handleSelectPath(path.id)}
               className={`relative rounded-2xl p-4 text-left bg-gradient-to-br ${path.color} text-white shadow-md transition-shadow ${
                 isSelected ? 'ring-3 ring-amber-400 shadow-lg' : ''
               } ${isLast ? 'col-span-2' : ''}`}
@@ -269,7 +371,7 @@ export default function Triage() {
           </h2>
           <div className="rounded-2xl bg-white border border-gray-200 p-5 shadow-sm space-y-2.5">
             <SummaryRow label="顾客来意" value={intentLabel} />
-            <SummaryRow label="标准诉求" value={currentProfile?.standardTags?.join('、') || '无'} />
+            <SummaryRow label="标准诉求" value={tags.join('、') || '无'} />
             <SummaryRow
               label="顾客情绪"
               value={emotionLabelMap[currentProfile?.emotion || ''] || '未评估'}
@@ -290,7 +392,7 @@ export default function Triage() {
               value={triagePaths.find((p) => p.id === selectedPath)?.label || ''}
             />
             <SummaryRow label="推荐理由" value={reason} />
-            <SummaryRow label="分诊结论" value={smartRecommendation?.conclusion || '建议进一步面诊确认方案'} />
+            <SummaryRow label="分诊结论" value={conclusion || '建议进一步面诊确认方案'} />
             <div className="pt-2 border-t border-gray-100">
               <button
                 onClick={handleCopy}
